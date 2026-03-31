@@ -64,7 +64,7 @@ def main():
                     current_date = p_date
                 print(f"[{v.duration}] {v.channel_title} - {v.title}")
         else:
-            start_tui(all_videos)
+            start_tui(all_videos, db)
 
     db.close()
 

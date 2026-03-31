@@ -35,6 +35,7 @@ class Video:
     like_count: Optional[int] = None
     comment_count: Optional[int] = None
     channel_title: str = ""
+    watch_later: bool = False
     raw_json: str = "{}"
 
     @property

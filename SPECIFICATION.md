@@ -21,7 +21,7 @@ Aplikacja służy do pobierania, przechowywania w lokalnej bazie danych i wyświ
 ## 4. Przechowywanie Danych (SQLite)
 Aplikacja przechowuje pełne informacje dostępne przez API:
 - **Tabela `channels`**: ID, tytuł, opis, URL, data publikacji kanału, statystyki (widoki, subskrypcje, liczba filmów), ID playlisty uploads, surowy JSON.
-- **Tabela `videos`**: ID, ID kanału, tytuł, opis, data publikacji, czas trwania, miniatura, statystyki (widoki, lajki, komentarze), surowy JSON.
+- **Tabela `videos`**: ID, ID kanału, tytuł, opis, data publikacji, czas trwania, miniatura, statystyki (widoki, lajki, komentarze), status "Watch Later", surowy JSON.
 - **Tabela `metadata`**: Przechowuje datę ostatniej synchronizacji.
 
 ## 5. Przepływ Logiczny i Synchronizacja
@@ -31,8 +31,9 @@ Aplikacja przechowuje pełne informacje dostępne przez API:
 2. Pobierz datę ostatniej synchronizacji z tabeli `metadata`.
 3. Jeśli użytkownik podał `--date-limit`, użyj tej daty jako początku synchronizacji.
 4. Pobierz wszystkie nowe filmy od daty ostatniej synchronizacji do dzisiaj.
-5. Zapisz nowe filmy w bazie danych.
+5. Zapisz nowe filmy w bazie danych (używając `ON CONFLICT DO UPDATE`, aby zachować status "Watch Later" dla istniejących filmów).
 6. Zaktualizuj datę ostatniej synchronizacji w `metadata`.
+
 
 ### 5.2. Interfejs TUI (Dual-Pane)
 1. **Lewy panel:** Lista filmów pogrupowana datami.
@@ -40,15 +41,21 @@ Aplikacja przechowuje pełne informacje dostępne przez API:
    - Skróty Vim:
      - `gg` - skok na początek listy.
      - `G` - skok na koniec listy (lub `[numer]G` skok do konkretnej linii).
-     - `d` / `D` - skok o jeden dzień w dół / w górę (można poprzedzić liczbą, np. `3d`).
+     - `J` / `K` - skok o jeden dzień w dół / w górę (można poprzedzić liczbą, np. `3J`).
      - `zz` - wycentrowanie widoku na aktualnie wybranym filmie.
      - `y` - kopiowanie linku URL wybranego filmu do schowka (wymaga `xclip` lub `wl-copy`).
+     - `o` - otwarcie filmu w domyślnej przeglądarce.
+     - `l` - dodanie filmu do listy "Watch Later" (Obejrzyj później).
+     - `L` - przełączenie widoku na listę "Watch Later".
+     - `d` - usunięcie filmu z listy "Watch Later".
      - `/` - wyszukiwanie i filtrowanie filmów po tytule lub nazwie kanału.
    - Inne:
      - `?` - wyświetlenie ekranu pomocy ze skrótami.
+     - `ESC` - powrót do głównej listy i wyczyszczenie wszystkich filtrów (wyszukiwania, kanału, listy "Watch Later").
+     - `q` - wyjście z aplikacji.
    - Numeracja linii: Względna numeracja linii (jak w Vim), ułatwiająca skoki o określoną liczbę pozycji.
    - Przewijanie o pełne strony: `PageUp`/`PageDown` oraz skróty Vim: `Ctrl+b` (góra) / `Ctrl+f` (dół).
-   - Filtrowanie: `s` (przełączanie Shortów), `b` (wyświetlanie tylko filmów aktualnego kanału).
+   - Filtrowanie: `s` (przełączanie Shortów), `S` (ustawienie progu czasu dla Shortów), `b` (wyświetlanie tylko filmów aktualnego kanału).
    - Kolorystyka: Konfigurowalne kolory pastelowe dla kropki, czasu, kanału i tytułu (plik `config.json`).
    - Wybór oznaczony kolorową kropką (`•`) i podświetleniem tła.
 2. **Prawy panel:** Szczegółowe informacje o wybranym filmie.

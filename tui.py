@@ -6,16 +6,19 @@ import os
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from models import Video
+from database import Database
 
 CONFIG_PATH = "config.json"
 
 class YouTubeTUI:
     """A dual-pane terminal interface with customizable pastel colors and navigation."""
-    def __init__(self, videos: List[Video]):
+    def __init__(self, videos: List[Video], db: Database):
+        self.db = db
         self.videos = videos
         self.selected_index = 0
         self.top_line = 0
         self.show_shorts = True
+        self.show_watch_later = False
         self.filter_channel_id = None
         self.filter_query = ""
         self.config = self._load_config()
@@ -68,6 +71,14 @@ class YouTubeTUI:
         filtered_videos = []
         q = self.filter_query.lower()
         for i, video in enumerate(self.videos):
+            # If we are in "Watch Later" mode, ONLY show watch later videos.
+            # We ignore other filters (shorts, channel, search) to make sure they are visible.
+            if self.show_watch_later:
+                if video.watch_later:
+                    filtered_videos.append((i, video))
+                continue
+            
+            # Apply normal filters
             # Apply shorts filter
             if not self.show_shorts and video.duration_seconds < threshold:
                 continue
@@ -124,6 +135,53 @@ class YouTubeTUI:
             process.communicate(input=text.encode('utf-8'))
             if process.returncode == 0: return
         except FileNotFoundError: pass
+
+    def _open_in_browser(self, video: Video):
+        """Opens the selected video in the default browser."""
+        try:
+            # Try xdg-open (Linux), open (macOS), or start (Windows)
+            subprocess.run(["xdg-open", video.url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except:
+            pass
+
+    def _set_shorts_threshold(self, stdscr):
+        """Prompt to set a new threshold for Shorts in seconds."""
+        sh, sw = stdscr.getmaxyx()
+        prompt = "Shorts threshold (seconds): "
+        
+        self._safe_addstr(stdscr, sh - 1, 0, " " * (sw - 1), curses.A_REVERSE)
+        self._safe_addstr(stdscr, sh - 1, 0, prompt, curses.A_REVERSE)
+        stdscr.refresh()
+        
+        curses.echo()
+        curses.curs_set(1)
+        query_win = curses.newwin(1, sw - len(prompt) - 1, sh - 1, len(prompt))
+        query_win.attron(curses.A_REVERSE)
+        try:
+            val = query_win.getstr().decode('utf-8')
+            if val.isdigit():
+                self.config["ui"]["shorts_threshold_seconds"] = int(val)
+                # Save to config file
+                with open(CONFIG_PATH, "w") as f:
+                    json.dump(self.config, f, indent=4)
+        except:
+            pass
+        curses.noecho()
+        curses.curs_set(0)
+
+    def _show_message(self, stdscr, message, seconds=1):
+        """Displays a message in the center of the screen for a given duration."""
+        sh, sw = stdscr.getmaxyx()
+        h, w = 3, len(message) + 4
+        y, x = (sh - h) // 2, (sw - w) // 2
+        
+        msg_win = curses.newwin(h, w, y, x)
+        msg_win.box()
+        self._safe_addstr(msg_win, 1, 2, message, curses.A_BOLD)
+        msg_win.noutrefresh()
+        curses.doupdate()
+        curses.napms(int(seconds * 1000))
+        # No need for manual refresh here as the main loop will redraw everything
 
     def _draw_left_pane(self, win, width, height):
         """Renders the video list pane."""
@@ -193,13 +251,10 @@ class YouTubeTUI:
                     self._safe_addstr(win, i, x, " " * (width - x), p(5))
                 self._safe_addstr(win, i, x, title_str, p(5))
                 
-        win.refresh()
-
     def _draw_right_pane(self, win, width, height):
         """Renders the video details pane."""
         win.clear()
         if not self.videos or self.selected_index >= len(self.videos) or width < 5:
-            win.refresh()
             return
             
         video = self.videos[self.selected_index]
@@ -238,7 +293,6 @@ class YouTubeTUI:
                     if y < height:
                         self._safe_addstr(win, y, 0, w_line, curses.color_pair(8))
                         y += 1
-        win.refresh()
 
     def _draw_help_overlay(self, stdscr):
         """Renders a help overlay in the center of the screen."""
@@ -254,17 +308,23 @@ class YouTubeTUI:
 
         shortcuts = [
             ("j/k/arrows", "Move up/down (supports counts, e.g. 5j)"),
-            ("d / D", "Jump 1 day down / up (supports counts)"),
+            ("J / K", "Jump 1 day down / up (supports counts)"),
             ("gg / G", "Jump to top / bottom (or [n]G to line)"),
             ("zz", "Center view on selection"),
             ("/", "Search/Filter videos"),
             ("Enter", "Play video in mpv"),
-            ("y", "Copy video URL to clipboard"),
-            ("s", "Toggle Shorts (filter by duration)"),
+            ("o", "Open in browser"),
+            ("l", "Add to Watch Later list"),
+            ("L", "Toggle Watch Later list view"),
+            ("d", "Remove from Watch Later list"),
+            ("y", "Yank (copy) video URL to clipboard"),
+            ("s", "Toggle Shorts visibility"),
+            ("S", "Set Shorts threshold"),
             ("b", "Toggle filter by current channel"),
             ("Ctrl+f / b", "Page down / up"),
             ("?", "Toggle this help screen"),
-            ("q / ESC", "Quit")
+            ("ESC", "Return to main list / Clear all filters"),
+            ("q", "Quit")
         ]
 
         for i, (key, desc) in enumerate(shortcuts):
@@ -317,14 +377,33 @@ class YouTubeTUI:
             left_win = curses.newwin(sh - 1, left_width, 0, 0)
             right_win = curses.newwin(sh - 1, right_width, 0, left_width + 1)
             
+            # Draw panes
             self._draw_left_pane(left_win, left_width, sh - 1)
             self._draw_right_pane(right_win, right_width, sh - 1)
             
+            # Clear stdscr before drawing border and footer
+            stdscr.erase()
+            
+            # Draw border
             for y in range(sh - 1):
                 try: stdscr.addch(y, left_width, curses.ACS_VLINE, curses.A_DIM)
                 except: pass
             
-            shorts_status = "Shorts: ON" if self.show_shorts else "Shorts: OFF"
+            # Draw footer
+            # Prepare status components
+            wl_count = sum(1 for v in self.videos if v.watch_later)
+            threshold = self.config['ui'].get('shorts_threshold_seconds', 90)
+            
+            # Watch Later part: [l]ater [L]ist (count)
+            # Use uppercase for label if active
+            wl_label = "IST" if self.show_watch_later else "ist"
+            wl_part = f"[l]ater [L]{wl_label} ({wl_count})"
+            
+            # Shorts part: [s]horts thre[S]hold (threshold)
+            # Uppercase means filter is ACTIVE (shorts are HIDDEN)
+            shorts_label = "HORTS" if not self.show_shorts else "horts"
+            shorts_part = f"[s]{shorts_label} thre[S]hold ({threshold}s)"
+            
             chan_filter = "Filter: OFF"
             if self.filter_channel_id:
                 chan_name = "Unknown"
@@ -336,11 +415,18 @@ class YouTubeTUI:
                 chan_filter = f"Filter: {chan_name}"
             
             search_status = f" | Query: {self.filter_query}" if self.filter_query else ""
-            footer = f" [q]uit | [?] help | [/] find | [y] copy | [s]horts | [b]y channel | [j/k] move | [Enter] play | {shorts_status} | {chan_filter}{search_status}"
+            
+            # Combined footer
+            footer = f" [q]uit | [?] help | [/] find | [y]ank | [o]pen | {wl_part} | [d]el | {shorts_part} | [b]y channel | {chan_filter}{search_status}"
             if self.input_buffer:
                 footer += f" | :{self.input_buffer}"
             self._safe_addstr(stdscr, sh - 1, 0, footer, curses.A_REVERSE)
-            stdscr.refresh()
+            
+            # Correct refresh order: background first, then foreground windows
+            stdscr.noutrefresh()
+            left_win.noutrefresh()
+            right_win.noutrefresh()
+            curses.doupdate()
             
             if self.show_help:
                 self._draw_help_overlay(stdscr)
@@ -360,8 +446,15 @@ class YouTubeTUI:
 
             count = int(self.input_buffer) if self.input_buffer and self.input_buffer.isdigit() else 1
 
-            if key in [ord('q'), 27]:
+            if key == ord('q'):
                 break
+            elif key == 27: # ESC
+                # Return to main screen, clear all filters
+                self.show_watch_later = False
+                self.filter_channel_id = None
+                self.filter_query = ""
+                self.input_buffer = ""
+                self.display_items = self._get_display_list()
             elif key == ord('?'):
                 self.show_help = True
             elif key == ord('/'):
@@ -373,8 +466,59 @@ class YouTubeTUI:
                     video = self.videos[self.selected_index]
                     self._copy_to_clipboard(video.url)
                 self.input_buffer = ""
+            elif key == ord('o'):
+                if self.videos and self.selected_index < len(self.videos):
+                    self._open_in_browser(self.videos[self.selected_index])
+                self.input_buffer = ""
+            elif key == ord('l'):
+                if self.videos and self.selected_index < len(self.videos):
+                    video = self.videos[self.selected_index]
+                    video.watch_later = True
+                    self.db.update_watch_later(video.id, True)
+                    self._show_message(stdscr, f"Added to Watch Later: {video.title[:30]}...")
+                    self.display_items = self._get_display_list()
+                self.input_buffer = ""
+            elif key == ord('L'):
+                # Toggle Watch Later mode
+                self.show_watch_later = not self.show_watch_later
+                self.display_items = self._get_display_list()
+                
+                # Check if the list is empty and we just switched TO watch later
+                if self.show_watch_later:
+                    video_count = sum(1 for v in self.videos if v.watch_later)
+                    if not any(item["type"] == "video" for item in self.display_items):
+                        self._show_message(stdscr, f"Watch Later list is empty (Total: {video_count})")
+                        # Stay in watch later mode even if empty, to let user see it's empty
+                        # or we can revert if you prefer, but let's keep it for now.
+                
+                # Ensure selection is valid in the new view
+                if self.display_items:
+                    found = False
+                    for item in self.display_items:
+                        if item["type"] == "video" and item["original_index"] == self.selected_index:
+                            found = True
+                            break
+                    if not found:
+                        for item in self.display_items:
+                            if item["type"] == "video":
+                                self.selected_index = item["original_index"]
+                                break
+                self.input_buffer = ""
+            elif key == ord('d'):
+                if self.videos and self.selected_index < len(self.videos):
+                    video = self.videos[self.selected_index]
+                    if video.watch_later:
+                        video.watch_later = False
+                        self.db.update_watch_later(video.id, False)
+                        self._show_message(stdscr, "Removed from Watch Later")
+                        self.display_items = self._get_display_list()
+                self.input_buffer = ""
             elif key == ord('s'):
                 self.show_shorts = not self.show_shorts
+                self.display_items = self._get_display_list()
+                self.input_buffer = ""
+            elif key == ord('S'):
+                self._set_shorts_threshold(stdscr)
                 self.display_items = self._get_display_list()
                 self.input_buffer = ""
             elif key == ord('b'):
@@ -417,7 +561,7 @@ class YouTubeTUI:
                         self.selected_index = self.display_items[target_idx]["original_index"]
                         moves_left -= 1
                 self.input_buffer = ""
-            elif key == ord('d'):
+            elif key == ord('J'):
                 # Jump down count days
                 current_display_idx = -1
                 for idx, item in enumerate(self.display_items):
@@ -438,7 +582,7 @@ class YouTubeTUI:
                         self.selected_index = self.display_items[idx]["original_index"]
                         break
                 self.input_buffer = ""
-            elif key == ord('D'):
+            elif key == ord('K'):
                 # Jump up count days
                 current_display_idx = -1
                 for idx, item in enumerate(self.display_items):
@@ -543,9 +687,10 @@ class YouTubeTUI:
                 # Any other key clears the buffer
                 self.input_buffer = ""
 
-def start_tui(videos: List[Video]):
+def start_tui(videos: List[Video], db: Database):
     if not videos:
         print("No videos in database. Try refreshing first.")
         return
     os.environ.setdefault('TERM', 'xterm-256color')
-    curses.wrapper(YouTubeTUI(videos).run)
+    os.environ.setdefault('ESCDELAY', '25')
+    curses.wrapper(lambda stdscr: YouTubeTUI(videos, db).run(stdscr))
