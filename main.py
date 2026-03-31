@@ -1,164 +1,72 @@
-import os
-import pickle
-import google_auth_oauthlib.flow
-import googleapiclient.discovery
-from collections import defaultdict
-from datetime import datetime
-import json
+import argparse
+import sys
+from datetime import datetime, timezone
+from typing import Optional
 
-
-scopes = ["https://www.googleapis.com/auth/youtube.force-ssl"]
-
-
-def get_authenticated_service():
-    credentials_path = "credentials.pickle"
-    if os.path.exists(credentials_path):
-        with open(credentials_path, "rb") as f:
-            credentials = pickle.load(f)
-    else:
-        flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
-            "client_secret_475291016858-5pnovc0dlqgsgv8m933qfk4u8uvs779r.apps.googleusercontent.com.json",
-            scopes,
-        )
-        credentials = flow.run_local_server(port=0)
-        with open(credentials_path, "wb") as f:
-            pickle.dump(credentials, f)
-
-    youtube = googleapiclient.discovery.build("youtube", "v3", credentials=credentials)
-    return youtube
-
-
-def get_subscriptions(youtube):
-    subscriptions = []
-    next_page_token = None
-    topic_count = defaultdict(int)
-
-    while True:
-        response = (
-            youtube.subscriptions()
-            .list(part="snippet", mine=True, maxResults=50, pageToken=next_page_token)
-            .execute()
-        )
-
-        subscriptions += response["items"]
-        next_page_token = response.get("nextPageToken")
-
-        if next_page_token is None:
-            break
-
-    for subscription in subscriptions:
-        snippet = subscription["snippet"]
-        channelId = snippet["resourceId"]["channelId"]
-        response = youtube.channels().list(part="topicDetails", id=channelId).execute()
-
-        items = response.get("items", [])
-        if items:
-            topicDetails = items[0].get("topicDetails", {})
-            topicCategories = topicDetails.get("topicCategories", [])
-        else:
-            topicCategories = []
-
-        for topic in topicCategories:
-            topic_count[topic] += 1
-
-    return topic_count
-
-
-def get_latest_videos_from_subscriptions(youtube, max_results=10, published_after=None):
-    all_channel_ids = []
-    next_page_token = None
-
-    while True:
-        response = (
-            youtube.subscriptions()
-            .list(part="snippet", mine=True, maxResults=50, pageToken=next_page_token)
-            .execute()
-        )
-        for item in response["items"]:
-            all_channel_ids.append(item["snippet"]["resourceId"]["channelId"])
-        next_page_token = response.get("nextPageToken")
-        if next_page_token is None:
-            break
-    
-    print(f"Found {len(all_channel_ids)} subscribed channels.")
-
-    all_upload_playlist_info = []
-    # Fetch uploads playlist for each channel
-    for i in range(0, len(all_channel_ids), 50): # Batch channels to avoid too many API calls
-        channel_ids_batch = all_channel_ids[i:i+50]
-        response = youtube.channels().list(
-            part="contentDetails,snippet",
-            id=",".join(channel_ids_batch)
-        ).execute()
-        for item in response["items"]:
-            all_upload_playlist_info.append({
-                "playlist_id": item["contentDetails"]["relatedPlaylists"]["uploads"],
-                "channel_title": item["snippet"]["title"]
-            })
-    
-    print(f"Found {len(all_upload_playlist_info)} upload playlist IDs.")
-
-    all_videos = []
-    # Fetch videos from each uploads playlist
-    for info in all_upload_playlist_info:
-        playlist_id = info["playlist_id"]
-        channel_title = info["channel_title"]
-        try:
-            request_params = {
-                "part": "snippet,contentDetails",
-                "playlistId": playlist_id,
-                "maxResults": 10,
-            }
-
-            response = youtube.playlistItems().list(**request_params).execute()
-            items = response.get("items", [])
-            if published_after:
-                items = [item for item in items if item["snippet"]["publishedAt"] >= published_after]
-            all_videos.extend(items)
-        except googleapiclient.errors.HttpError as e:
-            if e.resp.status == 404:
-                print(f"Warning: Uploads playlist not found for channel: {channel_title} (ID: {playlist_id}). The channel might be deleted, private, or has no uploads.")
-            else:
-                print(f"Warning: Could not fetch videos for channel {channel_title}. Error: {e}")
-
-    
-    
-    # Sort and return top N videos
-    all_videos.sort(key=lambda x: x["snippet"]["publishedAt"], reverse=True)
-
-    top_videos = []
-    for video in all_videos[:max_results]:
-        top_videos.append(
-            {
-                "publishedAt": video["snippet"]["publishedAt"],
-                "title": video["snippet"]["title"],
-                "channelTitle": video["snippet"]["channelTitle"],
-            }
-        )
-    return top_videos
+from youtube_client import YouTubeClient
+from database import Database
+from tui import start_tui
 
 def main():
-    print("Hello from script!")
-    youtube = get_authenticated_service()
+    parser = argparse.ArgumentParser(description="YouTube Subscription Monitor with Database & TUI")
+    parser.add_argument("--date-limit", type=str, help="Update from this date (YYYY-MM-DD). If not provided, updates from last refresh.")
+    parser.add_argument("--display-channels", action="store_true", help="Display channels from database.")
+    parser.add_argument("--no-tui", action="store_true", help="Don't start TUI after sync.")
+    parser.add_argument("--sync-only", action="store_true", help="Only sync data, don't show TUI.")
+    args = parser.parse_args()
 
-    published_after_date_str = input("Enter a date (YYYY-MM-DD) to filter videos published after (leave blank for no filter): ")
-    published_after_rfc3339 = None
-    if published_after_date_str:
+    db = Database()
+    client = YouTubeClient()
+
+    # Determine sync start date
+    sync_start_rfc3339 = None
+    if args.date_limit:
         try:
-            # Parse the input date string and format it to RFC3339
-            published_after_date = datetime.strptime(published_after_date_str, "%Y-%m-%d")
-            published_after_rfc3339 = published_after_date.isoformat("T") + "Z"
-            print(f"Filtering videos published after: {published_after_rfc3339}")
+            sync_start_date = datetime.strptime(args.date_limit, "%Y-%m-%d")
+            sync_start_rfc3339 = sync_start_date.isoformat("T") + "Z"
         except ValueError:
-            print("Invalid date format. Please use YYYY-MM-DD. No date filter will be applied.")
-            published_after_rfc3339 = None
-
-    latest_videos = get_latest_videos_from_subscriptions(youtube, published_after=published_after_rfc3339)
+            print("Invalid date format. Use YYYY-MM-DD.")
+            sys.exit(1)
+    else:
+        # Use last update from DB
+        sync_start_rfc3339 = db.get_last_update()
     
-    for video in latest_videos:
-        published_date = datetime.strptime(video["publishedAt"], "%Y-%m-%dT%H:%M:%SZ").strftime("%Y-%m-%d")
-        print(f"{published_date} - {video['channelTitle']} - {video['title']}")
+    # Always sync channels first to get current subscriptions and uploads playlist IDs
+    channels = client.get_subscriptions()
+    db.save_channels(channels)
+    
+    # Sync videos since sync_start_rfc3339
+    new_videos = client.sync_data(channels, sync_start_rfc3339)
+    if new_videos:
+        print(f"Saving {len(new_videos)} new videos to database...")
+        db.save_videos(new_videos)
+    else:
+        print("No new videos found since last update.")
 
+    # Update metadata with current time in RFC3339
+    now_rfc3339 = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    db.set_last_update(now_rfc3339)
+
+    if args.display_channels:
+        print("\n--- Channels in Database ---")
+        for ch in db.get_all_channels():
+            print(f"{ch.title} (ID: {ch.id}, Videos: {ch.video_count or 'N/A'})")
+
+    if not args.sync_only:
+        all_videos = db.get_all_videos()
+        if args.no_tui:
+            # Fallback text mode
+            current_date = None
+            for v in all_videos[:50]: # Show last 50
+                p_date = v.published_at.split('T')[0]
+                if p_date != current_date:
+                    print(f"\n--- {p_date} ---")
+                    current_date = p_date
+                print(f"[{v.duration}] {v.channel_title} - {v.title}")
+        else:
+            start_tui(all_videos)
+
+    db.close()
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,17 @@
+{
+  "colors": {
+    "header": 103,
+    "dot": 210,
+    "duration": 150,
+    "channel": 117,
+    "title": 231,
+    "selected_bg": 236,
+    "detail_label": 103,
+    "detail_value": 231
+  },
+  "ui": {
+    "pane_split_ratio": 0.5,
+    "page_scroll_ratio": 0.8,
+    "shorts_threshold_seconds": 90
+  }
+}
