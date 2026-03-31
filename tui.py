@@ -56,6 +56,10 @@ class YouTubeTUI:
         curses.init_pair(7, c["detail_label"], -1)
         curses.init_pair(8, c["detail_value"], -1)
         
+        # Status bar separator color: define as (Default, Red)
+        # so that A_REVERSE results in (Red, Default) to match the rest of the bar
+        curses.init_pair(9, -1, 210) 
+        
         # Selected pairs
         curses.init_pair(12, c["dot"], bg)
         curses.init_pair(13, c["duration"], bg)
@@ -416,16 +420,47 @@ class YouTubeTUI:
             
             search_status = f" | Query: {self.filter_query}" if self.filter_query else ""
             
-            # Combined footer string
-            footer = f" [q]uit | [?] help | [/] find | [y]ank | [o]pen | {wl_part} | [d]el | {shorts_part} | [b]y channel | {chan_filter}{search_status}"
-            if self.input_buffer:
-                footer += f" | :{self.input_buffer}"
-            
-            # Clear footer and draw in one style
+            # Combined footer logic
+            def add_footer_seg(text, attr=curses.A_REVERSE):
+                nonlocal x_footer
+                if x_footer >= sw: return
+                self._safe_addstr(stdscr, sh - 1, x_footer, text, attr)
+                x_footer += len(text)
+
+            def add_footer_sep():
+                # Green separator with same background as footer (using pair 9 + A_REVERSE)
+                add_footer_seg("|", curses.color_pair(9) | curses.A_REVERSE)
+
+            # Clear footer and draw
             stdscr.move(sh - 1, 0)
             stdscr.clrtoeol()
-            self._safe_addstr(stdscr, sh - 1, 0, footer + " " * (sw - len(footer)), curses.A_REVERSE)
+            stdscr.addstr(sh - 1, 0, " " * (sw - 1), curses.A_REVERSE)
             
+            x_footer = 1
+            add_footer_seg(f"[q]uit ")
+            add_footer_sep()
+            add_footer_seg(f" [?] help ")
+            add_footer_sep()
+            add_footer_seg(f" [/] find ")
+            add_footer_sep()
+            add_footer_seg(f" [y]ank ")
+            add_footer_sep()
+            add_footer_seg(f" [o]pen ")
+            add_footer_sep()
+            add_footer_seg(f" {wl_part} ")
+            add_footer_sep()
+            add_footer_seg(f" [d]el ")
+            add_footer_sep()
+            add_footer_seg(f" {shorts_part} ")
+            add_footer_sep()
+            add_footer_seg(f" [b]y channel ")
+            add_footer_sep()
+            add_footer_seg(f" {chan_filter}{search_status}")
+            
+            if self.input_buffer:
+                add_footer_sep()
+                add_footer_seg(f" :{self.input_buffer}")
+
             # Correct refresh order: background first, then foreground windows
             stdscr.noutrefresh()
             left_win.noutrefresh()
