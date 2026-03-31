@@ -416,11 +416,15 @@ class YouTubeTUI:
             
             search_status = f" | Query: {self.filter_query}" if self.filter_query else ""
             
-            # Combined footer
+            # Combined footer string
             footer = f" [q]uit | [?] help | [/] find | [y]ank | [o]pen | {wl_part} | [d]el | {shorts_part} | [b]y channel | {chan_filter}{search_status}"
             if self.input_buffer:
                 footer += f" | :{self.input_buffer}"
-            self._safe_addstr(stdscr, sh - 1, 0, footer, curses.A_REVERSE)
+            
+            # Clear footer and draw in one style
+            stdscr.move(sh - 1, 0)
+            stdscr.clrtoeol()
+            self._safe_addstr(stdscr, sh - 1, 0, footer + " " * (sw - len(footer)), curses.A_REVERSE)
             
             # Correct refresh order: background first, then foreground windows
             stdscr.noutrefresh()

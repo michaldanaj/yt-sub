@@ -31,12 +31,15 @@ def main():
         # Use last update from DB
         sync_start_rfc3339 = db.get_last_update()
     
-    # Always sync channels first to get current subscriptions and uploads playlist IDs
+    # Sync channels first to get current subscriptions and uploads playlist IDs
     channels = client.get_subscriptions()
     db.save_channels(channels)
     
+    # Get stats for adaptive batching
+    channel_stats = db.get_channel_stats()
+    
     # Sync videos since sync_start_rfc3339
-    new_videos = client.sync_data(channels, sync_start_rfc3339)
+    new_videos = client.sync_data(channels, sync_start_rfc3339, channel_stats)
     if new_videos:
         print(f"Saving {len(new_videos)} new videos to database...")
         db.save_videos(new_videos)

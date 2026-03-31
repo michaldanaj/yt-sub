@@ -1,6 +1,6 @@
 import sqlite3
 import json
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 from datetime import datetime
 from models import Channel, Video
 
@@ -158,6 +158,22 @@ class Database:
         cursor.execute('SELECT value FROM metadata WHERE key = ?', ("last_update",))
         row = cursor.fetchone()
         return row[0] if row else None
+
+    def get_channel_stats(self) -> Dict[str, float]:
+        """Calculates average daily videos for each channel over the last 3 months."""
+        cursor = self.conn.cursor()
+        three_months_ago = (datetime.now().timestamp() - (90 * 24 * 3600))
+        three_months_ago_str = datetime.fromtimestamp(three_months_ago).strftime("%Y-%m-%dT%H:%M:%SZ")
+        
+        cursor.execute('''
+            SELECT channel_id, COUNT(*) 
+            FROM videos 
+            WHERE published_at > ? 
+            GROUP BY channel_id
+        ''', (three_months_ago_str,))
+        
+        counts = {row[0]: row[1] / 90.0 for row in cursor.fetchall()}
+        return counts
 
     def close(self):
         """Closes the database connection."""

@@ -30,9 +30,13 @@ Aplikacja przechowuje pełne informacje dostępne przez API:
 1. Pobierz aktualną listę subskrypcji i zaktualizuj tabelę `channels`.
 2. Pobierz datę ostatniej synchronizacji z tabeli `metadata`.
 3. Jeśli użytkownik podał `--date-limit`, użyj tej daty jako początku synchronizacji.
-4. Pobierz wszystkie nowe filmy od daty ostatniej synchronizacji do dzisiaj.
-5. Zapisz nowe filmy w bazie danych (używając `ON CONFLICT DO UPDATE`, aby zachować status "Watch Later" dla istniejących filmów).
-6. Zaktualizuj datę ostatniej synchronizacji w `metadata`.
+4. Pobierz statystyki kanałów z bazy (średnia dzienna liczba filmów z ostatnich 3 miesięcy).
+5. Pobierz wszystkie nowe filmy od daty ostatniej synchronizacji do dzisiaj, używając adaptacyjnej wielkości paczek (`maxResults`):
+   - Dla każdego kanału: `maxResults = max(średnia_dzienna * dni_od_ostatniego_sync, 2)`.
+   - Jeśli kanał jest nowy (brak danych): `maxResults = 10`.
+   - Wartość jest ograniczona do maksimum 50 (limit API).
+6. Zapisz nowe filmy w bazie danych (używając `ON CONFLICT DO UPDATE`, aby zachować status "Watch Later" dla istniejących filmów).
+7. Zaktualizuj datę ostatniej synchronizacji w `metadata`.
 
 
 ### 5.2. Interfejs TUI (Dual-Pane)

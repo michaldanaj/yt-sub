@@ -107,8 +107,8 @@ class YouTubeClient:
             return f"{h}:{m:02d}:{s:02d}".rjust(7)
         return f"{m}:{s:02d}".rjust(7)
 
-    def fetch_videos_from_playlist(self, channel: Channel, published_after: Optional[str]) -> Tuple[List[Dict], str, Optional[str]]:
-        """Fetches videos from a channel's uploads playlist since a given date."""
+    def fetch_videos_from_playlist(self, channel: Channel, published_after: Optional[str], channel_stats: Dict[str, float] = None) -> Tuple[List[Dict], str, Optional[str]]:
+        """Fetches videos from a channel's uploads playlist since a given date using adaptive batching."""
         youtube = self._get_service_for_thread()
         playlist_id = channel.uploads_playlist_id
         if not playlist_id:
@@ -117,13 +117,36 @@ class YouTubeClient:
         videos = []
         latest_video_date = None
         next_page_token = None
+
+        # Calculate adaptive maxResults
+        max_results = 50 # Default
+        if channel_stats:
+            avg_per_day = channel_stats.get(channel.id)
+            days_passed = 1 # Minimum 1 day
+            if published_after:
+                try:
+                    last_refresh = datetime.strptime(published_after, "%Y-%m-%dT%H:%M:%SZ")
+                    delta = datetime.now() - last_refresh
+                    days_passed = max(1, (delta.days + (1 if delta.seconds > 0 else 0)))
+                except ValueError:
+                    pass
+            
+            if avg_per_day is not None:
+                # Algorithm: max(avg_per_day * days_passed, 2)
+                max_results = max(int(avg_per_day * days_passed + 0.5), 2)
+            else:
+                # If channel has no videos in DB yet, use 10
+                max_results = 10
+            
+            # Cap at 50 as it's the API limit for maxResults
+            max_results = min(max_results, 50)
         
         try:
             while True:
                 response = youtube.playlistItems().list(
                     part="snippet,contentDetails",
                     playlistId=playlist_id,
-                    maxResults=50,
+                    maxResults=max_results,
                     pageToken=next_page_token
                 ).execute()
                 
@@ -195,13 +218,13 @@ class YouTubeClient:
                 ))
         return detailed_videos
 
-    def sync_data(self, channels: List[Channel], published_after: Optional[str]) -> List[Video]:
-        """Synchronizes new videos from subscriptions in parallel."""
+    def sync_data(self, channels: List[Channel], published_after: Optional[str], channel_stats: Dict[str, float] = None) -> List[Video]:
+        """Synchronizes new videos from subscriptions in parallel using adaptive batching."""
         print(f"Syncing videos since {published_after or 'forever'}...")
         all_raw_videos = []
         
         with ThreadPoolExecutor(max_workers=20) as executor:
-            futures = [executor.submit(self.fetch_videos_from_playlist, c, published_after) for c in channels]
+            futures = [executor.submit(self.fetch_videos_from_playlist, c, published_after, channel_stats) for c in channels]
             completed = 0
             for future in as_completed(futures):
                 videos, cid, latest_date = future.result()
