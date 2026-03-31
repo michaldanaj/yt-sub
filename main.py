@@ -1,11 +1,43 @@
 import argparse
 import sys
+import threading
+import queue
 from datetime import datetime, timezone
 from typing import Optional
 
 from youtube_client import YouTubeClient
 from database import Database
 from tui import start_tui
+
+def background_sync(db: Database, client: YouTubeClient, sync_queue: queue.Queue, sync_start_rfc3339: Optional[str]):
+    """Runs the sync process in the background and pushes new videos to the TUI."""
+    def progress(msg):
+        sync_queue.put({"type": "progress", "message": msg})
+
+    try:
+        # Sync channels first
+        channels = client.get_subscriptions(progress_callback=progress)
+        db.save_channels(channels)
+        
+        # Get stats for adaptive batching
+        channel_stats = db.get_channel_stats()
+        
+        # Sync videos since sync_start_rfc3339
+        new_videos = client.sync_data(channels, sync_start_rfc3339, channel_stats, progress_callback=progress)
+        
+        if new_videos:
+            db.save_videos(new_videos)
+            # Push new videos to TUI
+            sync_queue.put({"type": "videos", "data": new_videos})
+            
+        # Update metadata with current time
+        now_rfc3339 = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        db.set_last_update(now_rfc3339)
+        
+    except Exception as e:
+        progress(f"Sync error: {str(e)}")
+    finally:
+        sync_queue.put({"type": "done"})
 
 def main():
     parser = argparse.ArgumentParser(description="YouTube Subscription Monitor with Database & TUI")
@@ -28,48 +60,47 @@ def main():
             print("Invalid date format. Use YYYY-MM-DD.")
             sys.exit(1)
     else:
-        # Use last update from DB
         sync_start_rfc3339 = db.get_last_update()
-    
-    # Sync channels first to get current subscriptions and uploads playlist IDs
-    channels = client.get_subscriptions()
-    db.save_channels(channels)
-    
-    # Get stats for adaptive batching
-    channel_stats = db.get_channel_stats()
-    
-    # Sync videos since sync_start_rfc3339
-    new_videos = client.sync_data(channels, sync_start_rfc3339, channel_stats)
-    if new_videos:
-        print(f"Saving {len(new_videos)} new videos to database...")
-        db.save_videos(new_videos)
-    else:
-        print("No new videos found since last update.")
-
-    # Update metadata with current time in RFC3339
-    now_rfc3339 = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    db.set_last_update(now_rfc3339)
 
     if args.display_channels:
         print("\n--- Channels in Database ---")
         for ch in db.get_all_channels():
             print(f"{ch.title} (ID: {ch.id}, Videos: {ch.video_count or 'N/A'})")
+        db.close()
+        return
 
-    if not args.sync_only:
-        all_videos = db.get_all_videos()
-        if args.no_tui:
-            # Fallback text mode
-            current_date = None
-            for v in all_videos[:50]: # Show last 50
-                p_date = v.published_at.split('T')[0]
-                if p_date != current_date:
-                    print(f"\n--- {p_date} ---")
-                    current_date = p_date
-                print(f"[{v.duration}] {v.channel_title} - {v.title}")
-        else:
-            start_tui(all_videos, db)
+    if args.sync_only:
+        # In sync-only mode, we still run in foreground for simplicity
+        sync_queue = queue.Queue()
+        background_sync(db, client, sync_queue, sync_start_rfc3339)
+        db.close()
+        return
 
-    db.close()
+    # Load existing videos immediately
+    all_videos = db.get_all_videos()
+
+    if args.no_tui:
+        # Text mode (we don't do background sync here for simplicity)
+        current_date = None
+        for v in all_videos[:50]:
+            p_date = v.published_at.split('T')[0]
+            if p_date != current_date:
+                print(f"\n--- {p_date} ---")
+                current_date = p_date
+            print(f"[{v.duration}] {v.channel_title} - {v.title}")
+        db.close()
+    else:
+        # Start TUI and background sync
+        sync_queue = queue.Queue()
+        sync_thread = threading.Thread(
+            target=background_sync, 
+            args=(db, client, sync_queue, sync_start_rfc3339),
+            daemon=True
+        )
+        sync_thread.start()
+        
+        start_tui(all_videos, db, sync_queue)
+        db.close()
 
 if __name__ == "__main__":
     main()

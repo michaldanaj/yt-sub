@@ -3,6 +3,7 @@ import subprocess
 import textwrap
 import json
 import os
+import queue
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from models import Video
@@ -12,7 +13,7 @@ CONFIG_PATH = "config.json"
 
 class YouTubeTUI:
     """A dual-pane terminal interface with customizable pastel colors and navigation."""
-    def __init__(self, videos: List[Video], db: Database):
+    def __init__(self, videos: List[Video], db: Database, sync_queue: queue.Queue = None):
         self.db = db
         self.videos = videos
         self.selected_index = 0
@@ -25,6 +26,9 @@ class YouTubeTUI:
         self.display_items = self._get_display_list()
         self.input_buffer = ""
         self.show_help = False
+        self.sync_queue = sync_queue
+        self.is_syncing = False if sync_queue is None else True
+        self.sync_progress = ""
 
     def _load_config(self) -> Dict[str, Any]:
         """Loads TUI configuration from file."""
@@ -366,6 +370,7 @@ class YouTubeTUI:
         curses.curs_set(0)
         stdscr.clear()
         
+        force_redraw = True
         while True:
             sh, sw = stdscr.getmaxyx()
             if sh < 5 or sw < 10:
@@ -374,104 +379,139 @@ class YouTubeTUI:
                 if stdscr.getch() == ord('q'): break
                 continue
 
-            split_ratio = self.config["ui"].get("pane_split_ratio", 0.5)
-            left_width = int(sw * split_ratio)
-            right_width = sw - left_width - 1
-            
-            left_win = curses.newwin(sh - 1, left_width, 0, 0)
-            right_win = curses.newwin(sh - 1, right_width, 0, left_width + 1)
-            
-            # Draw panes
-            self._draw_left_pane(left_win, left_width, sh - 1)
-            self._draw_right_pane(right_win, right_width, sh - 1)
-            
-            # Clear stdscr before drawing border and footer
-            stdscr.erase()
-            
-            # Draw border
-            for y in range(sh - 1):
-                try: stdscr.addch(y, left_width, curses.ACS_VLINE, curses.A_DIM)
-                except: pass
-            
-            # Draw footer
-            # Prepare status components
-            wl_count = sum(1 for v in self.videos if v.watch_later)
-            threshold = self.config['ui'].get('shorts_threshold_seconds', 90)
-            
-            # Watch Later part: [l]ater [L]ist (count)
-            # Use uppercase for label if active
-            wl_label = "IST" if self.show_watch_later else "ist"
-            wl_part = f"[l]ater [L]{wl_label} ({wl_count})"
-            
-            # Shorts part: [s]horts thre[S]hold (threshold)
-            # Uppercase means filter is ACTIVE (shorts are HIDDEN)
-            shorts_label = "HORTS" if not self.show_shorts else "horts"
-            shorts_part = f"[s]{shorts_label} thre[S]hold ({threshold}s)"
-            
-            chan_filter = "Filter: OFF"
-            if self.filter_channel_id:
-                chan_name = "Unknown"
-                if self.display_items:
-                    for item in self.display_items:
-                        if item["type"] == "video" and item["content"].channel_id == self.filter_channel_id:
-                            chan_name = item["content"].channel_title
-                            break
-                chan_filter = f"Filter: {chan_name}"
-            
-            search_status = f" | Query: {self.filter_query}" if self.filter_query else ""
-            
-            # Combined footer logic
-            def add_footer_seg(text, attr=curses.A_REVERSE):
-                nonlocal x_footer
-                if x_footer >= sw: return
-                self._safe_addstr(stdscr, sh - 1, x_footer, text, attr)
-                x_footer += len(text)
+            # Poll sync queue
+            needs_redraw = force_redraw
+            force_redraw = False
+            if self.sync_queue:
+                try:
+                    while True:
+                        msg = self.sync_queue.get_nowait()
+                        if isinstance(msg, dict):
+                            mtype = msg.get("type")
+                            if mtype == "done":
+                                self.is_syncing = False
+                                self.sync_progress = "Complete"
+                                needs_redraw = True
+                            elif mtype == "progress":
+                                self.sync_progress = msg.get("message", "")
+                                needs_redraw = True
+                            elif mtype == "videos":
+                                new_batch = msg.get("data", [])
+                                if new_batch:
+                                    self.videos = new_batch + self.videos
+                                    self.selected_index += len(new_batch)
+                                    self.display_items = self._get_display_list()
+                                    self._show_message(stdscr, f"Background sync: {len(new_batch)} new videos added", 2)
+                                    needs_redraw = True
+                except queue.Empty:
+                    pass
 
-            def add_footer_sep():
-                # Green separator with same background as footer (using pair 9 + A_REVERSE)
-                add_footer_seg("|", curses.color_pair(9) | curses.A_REVERSE)
+            if needs_redraw:
+                split_ratio = self.config["ui"].get("pane_split_ratio", 0.5)
+                left_width = int(sw * split_ratio)
+                right_width = sw - left_width - 1
+                
+                left_win = curses.newwin(sh - 1, left_width, 0, 0)
+                right_win = curses.newwin(sh - 1, right_width, 0, left_width + 1)
+                
+                # Draw panes
+                self._draw_left_pane(left_win, left_width, sh - 1)
+                self._draw_right_pane(right_win, right_width, sh - 1)
+                
+                # Clear stdscr before drawing border and footer
+                stdscr.erase()
+                
+                # Draw border
+                for y in range(sh - 1):
+                    try: stdscr.addch(y, left_width, curses.ACS_VLINE, curses.A_DIM)
+                    except: pass
+                
+                # Draw footer
+                # Prepare status components
+                wl_count = sum(1 for v in self.videos if v.watch_later)
+                threshold = self.config['ui'].get('shorts_threshold_seconds', 90)
+                
+                # Watch Later part: [l]ater [L]ist (count)
+                wl_label = "IST" if self.show_watch_later else "ist"
+                wl_part = f"[l]ater [L]{wl_label} ({wl_count})"
+                
+                # Shorts part: [s]horts thre[S]hold (threshold)
+                shorts_label = "HORTS" if not self.show_shorts else "horts"
+                shorts_part = f"[s]{shorts_label} thre[S]hold ({threshold}s)"
+                
+                chan_filter = "Filter: OFF"
+                if self.filter_channel_id:
+                    chan_name = "Unknown"
+                    if self.display_items:
+                        for item in self.display_items:
+                            if item["type"] == "video" and item["content"].channel_id == self.filter_channel_id:
+                                chan_name = item["content"].channel_title
+                                break
+                    chan_filter = f"Filter: {chan_name}"
+                
+                search_status = f" | Query: {self.filter_query}" if self.filter_query else ""
+                
+                # Clear footer line
+                stdscr.move(sh - 1, 0)
+                stdscr.clrtoeol()
+                
+                # Helper for segments
+                x_footer = 1
+                def add_footer_seg(text, attr=curses.A_REVERSE):
+                    nonlocal x_footer
+                    if x_footer >= sw: return
+                    self._safe_addstr(stdscr, sh - 1, x_footer, text, attr)
+                    x_footer += len(text)
 
-            # Clear footer and draw
-            stdscr.move(sh - 1, 0)
-            stdscr.clrtoeol()
-            stdscr.addstr(sh - 1, 0, " " * (sw - 1), curses.A_REVERSE)
-            
-            x_footer = 1
-            add_footer_seg(f"[q]uit ")
-            add_footer_sep()
-            add_footer_seg(f" [?] help ")
-            add_footer_sep()
-            add_footer_seg(f" [/] find ")
-            add_footer_sep()
-            add_footer_seg(f" [y]ank ")
-            add_footer_sep()
-            add_footer_seg(f" [o]pen ")
-            add_footer_sep()
-            add_footer_seg(f" {wl_part} ")
-            add_footer_sep()
-            add_footer_seg(f" [d]el ")
-            add_footer_sep()
-            add_footer_seg(f" {shorts_part} ")
-            add_footer_sep()
-            add_footer_seg(f" [b]y channel ")
-            add_footer_sep()
-            add_footer_seg(f" {chan_filter}{search_status}")
-            
-            if self.input_buffer:
+                def add_footer_sep():
+                    add_footer_seg("|", curses.color_pair(9) | curses.A_REVERSE)
+
+                x_footer = 1
+                add_footer_seg(f"[q]uit ")
                 add_footer_sep()
-                add_footer_seg(f" :{self.input_buffer}")
+                add_footer_seg(f" [?] help ")
+                add_footer_sep()
+                add_footer_seg(f" [/] find ")
+                add_footer_sep()
+                add_footer_seg(f" [y]ank ")
+                add_footer_sep()
+                add_footer_seg(f" [o]pen ")
+                add_footer_sep()
+                add_footer_seg(f" {wl_part} ")
+                add_footer_sep()
+                add_footer_seg(f" [d]el ")
+                add_footer_sep()
+                add_footer_seg(f" {shorts_part} ")
+                add_footer_sep()
+                add_footer_seg(f" [b]y channel ")
+                add_footer_sep()
+                add_footer_seg(f" {chan_filter}{search_status}")
+                if self.is_syncing:
+                    add_footer_sep()
+                    add_footer_seg(f" [SYNC: {self.sync_progress}]")
+                
+                if self.input_buffer:
+                    add_footer_sep()
+                    add_footer_seg(f" :{self.input_buffer}")
 
-            # Correct refresh order: background first, then foreground windows
-            stdscr.noutrefresh()
-            left_win.noutrefresh()
-            right_win.noutrefresh()
-            curses.doupdate()
-            
-            if self.show_help:
-                self._draw_help_overlay(stdscr)
-                continue
+                # Correct refresh order: background first, then foreground windows
+                stdscr.noutrefresh()
+                left_win.noutrefresh()
+                right_win.noutrefresh()
+                curses.doupdate()
+                
+                if self.show_help:
+                    self._draw_help_overlay(stdscr)
+                    force_redraw = True
+                    continue
 
+            stdscr.timeout(100)
             key = stdscr.getch()
+            if key == -1: # Timeout
+                continue
+            
+            force_redraw = True # Input received, redraw next loop
+            page_size = max(1, sh - 2)
             page_size = max(1, sh - 2)
             
             # Handle counts
@@ -726,10 +766,10 @@ class YouTubeTUI:
                 # Any other key clears the buffer
                 self.input_buffer = ""
 
-def start_tui(videos: List[Video], db: Database):
+def start_tui(videos: List[Video], db: Database, sync_queue: queue.Queue = None):
     if not videos:
-        print("No videos in database. Try refreshing first.")
-        return
+        # If no videos, we still want to show TUI and wait for sync
+        videos = []
     os.environ.setdefault('TERM', 'xterm-256color')
     os.environ.setdefault('ESCDELAY', '25')
-    curses.wrapper(lambda stdscr: YouTubeTUI(videos, db).run(stdscr))
+    curses.wrapper(lambda stdscr: YouTubeTUI(videos, db, sync_queue).run(stdscr))
