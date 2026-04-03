@@ -439,7 +439,7 @@ class YouTubeTUI:
                                 break
                     chan_filter = f"Filter: {chan_name}"
                 
-            search_status = f" | Query: {self.filter_query}" if self.filter_query else ""
+                search_status = f" | Query: {self.filter_query}" if self.filter_query else ""
                 
                 def add_footer_seg(text, attr=curses.A_REVERSE):
                     nonlocal x_footer
