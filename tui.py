@@ -26,6 +26,7 @@ class YouTubeTUI:
         self.config = self._load_config()
         self.display_items = self._get_display_list()
         self.input_buffer = ""
+        self.is_searching = False
         self.show_help = False
         self.sync_queue = sync_queue
         self.is_syncing = False if sync_queue is None else True
@@ -338,27 +339,6 @@ class YouTubeTUI:
         win.getch()
         self.show_help = False
 
-    def _get_search_query(self, stdscr):
-        """Opens a search prompt and returns the user input."""
-        sh, sw = stdscr.getmaxyx()
-        prompt = "Search: "
-        
-        self._safe_addstr(stdscr, sh - 1, 0, " " * (sw - 1), curses.A_REVERSE)
-        self._safe_addstr(stdscr, sh - 1, 0, prompt, curses.A_REVERSE)
-        stdscr.refresh()
-        
-        curses.echo()
-        curses.curs_set(1)
-        query_win = curses.newwin(1, sw - len(prompt) - 1, sh - 1, len(prompt))
-        query_win.attron(curses.A_REVERSE)
-        try:
-            query = query_win.getstr().decode('utf-8')
-        except:
-            query = ""
-        curses.noecho()
-        curses.curs_set(0)
-        return query
-
     def run(self, stdscr):
         self._init_colors()
         curses.curs_set(0)
@@ -473,25 +453,32 @@ class YouTubeTUI:
                 stdscr.move(sh - 1, 0)
                 stdscr.clrtoeol()
                 x_footer = 1
-                add_footer_seg(f"[q]uit ")
-                add_footer_sep()
-                add_footer_seg(f" [?] help ")
-                add_footer_sep()
-                add_footer_seg(f" [/] find ")
-                add_footer_sep()
-                add_footer_seg(f" [y]ank ")
-                add_footer_sep()
-                add_footer_seg(f" [o]pen ")
-                add_footer_sep()
-                add_footer_seg(f" {wl_part} ")
-                add_footer_sep()
-                add_footer_seg(f" [d]el ")
-                add_footer_sep()
-                add_footer_seg(f" {shorts_part} ")
-                add_footer_sep()
-                add_footer_seg(f" [b]y channel ")
-                add_footer_sep()
-                add_footer_seg(f" {chan_filter}{search_status}")
+                
+                # Highlight search mode in footer
+                if self.is_searching:
+                    add_footer_seg(f" SEARCH: {self.filter_query}_ ", curses.A_REVERSE | curses.A_BOLD)
+                    add_footer_sep()
+                else:
+                    add_footer_seg(f"[q]uit ")
+                    add_footer_sep()
+                    add_footer_seg(f" [?] help ")
+                    add_footer_sep()
+                    add_footer_seg(f" [/] find ")
+                    add_footer_sep()
+                    add_footer_seg(f" [y]ank ")
+                    add_footer_sep()
+                    add_footer_seg(f" [o]pen ")
+                    add_footer_sep()
+                    add_footer_seg(f" {wl_part} ")
+                    add_footer_sep()
+                    add_footer_seg(f" [d]el ")
+                    add_footer_sep()
+                    add_footer_seg(f" {shorts_part} ")
+                    add_footer_sep()
+                    add_footer_seg(f" [b]y channel ")
+                    add_footer_sep()
+                    add_footer_seg(f" {chan_filter}{search_status}")
+
                 if self.is_syncing:
                     add_footer_sep()
                     add_footer_seg(f" [SYNC: {self.sync_progress}]")
@@ -521,6 +508,19 @@ class YouTubeTUI:
 
             force_redraw = True
             
+            # --- LIVE SEARCH MODE HANDLING ---
+            if self.is_searching:
+                if key in [ord('\n'), curses.KEY_ENTER, 27]: # Enter or ESC
+                    self.is_searching = False
+                elif key in [curses.KEY_BACKSPACE, 127, 8]: # Backspace
+                    self.filter_query = self.filter_query[:-1]
+                    self.display_items = self._get_display_list()
+                elif 32 <= key <= 126: # Typable characters
+                    self.filter_query += chr(key)
+                    self.display_items = self._get_display_list()
+                continue
+            # ---------------------------------
+            
             # Handle counts and other keys...
             if ord('0') <= key <= ord('9'):
                 if self.input_buffer == "" and key == ord('0'): pass
@@ -531,7 +531,7 @@ class YouTubeTUI:
             count = int(self.input_buffer) if self.input_buffer and self.input_buffer.isdigit() else 1
 
             if key == ord('q'): break
-            elif key == 27:
+            elif key == 27: # ESC (out of search mode)
                 self.show_watch_later = False
                 self.filter_channel_id = None
                 self.filter_query = ""
@@ -539,9 +539,9 @@ class YouTubeTUI:
                 self.display_items = self._get_display_list()
             elif key == ord('?'): self.show_help = True
             elif key == ord('/'):
-                self.filter_query = self._get_search_query(stdscr)
-                self.display_items = self._get_display_list()
+                self.is_searching = True
                 self.input_buffer = ""
+                continue
             elif key == ord('y'):
                 if self.videos and self.selected_index < len(self.videos):
                     self._copy_to_clipboard(self.videos[self.selected_index].url)
