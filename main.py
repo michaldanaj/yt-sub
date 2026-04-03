@@ -2,12 +2,42 @@ import argparse
 import sys
 import threading
 import queue
+import os
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Optional
 
 from youtube_client import YouTubeClient
 from database import Database
-from tui import start_tui
+from tui import start_tui, THUMB_CACHE_DIR
+
+
+def download_thumbnails(videos, progress_callback=None):
+    """Pre-downloads maxresdefault thumbnails for videos that lack a cached file."""
+    os.makedirs(THUMB_CACHE_DIR, exist_ok=True)
+    to_fetch = [v for v in videos
+                if not os.path.exists(os.path.join(THUMB_CACHE_DIR, f"{v.id}_max.jpg"))]
+    if not to_fetch:
+        return
+
+    if progress_callback:
+        progress_callback(f"Downloading {len(to_fetch)} thumbnails...")
+
+    def fetch(video):
+        path = os.path.join(THUMB_CACHE_DIR, f"{video.id}_max.jpg")
+        for url in [f"https://i.ytimg.com/vi/{video.id}/maxresdefault.jpg",
+                    video.thumbnail_url]:
+            if not url:
+                continue
+            try:
+                urllib.request.urlretrieve(url, path)
+                return
+            except Exception:
+                continue
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        list(executor.map(fetch, to_fetch))
 
 def background_sync(db: Database, client: YouTubeClient, sync_queue: queue.Queue, sync_start_rfc3339: Optional[str]):
     """Runs the sync process in the background and pushes new videos to the TUI."""
@@ -36,6 +66,8 @@ def background_sync(db: Database, client: YouTubeClient, sync_queue: queue.Queue
                 db.save_videos(new_videos)
                 # Push new videos to TUI
                 sync_queue.put({"type": "videos", "data": new_videos})
+                # Pre-download thumbnails for new videos
+                download_thumbnails(new_videos, progress_callback=progress)
             except Exception as e:
                 progress(f"DB Error: {str(e)}")
                 raise e
