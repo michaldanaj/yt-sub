@@ -105,6 +105,16 @@ Wyświetla:
 - Likes (liczba lajków)
 - Separator poziomy
 - Opis filmu (zawijany, z zachowaniem pustych linii)
+- **Miniatura** (na dole panelu, wycentrowana poziomo)
+
+#### Miniatura
+- Renderowana przez **Kitty Terminal Graphics Protocol** (natywna grafika, nie ASCII).
+- Źródło: `maxresdefault.jpg` (1280×720) z fallbackiem do `thumbnail_url` z bazy.
+- Pliki cache: `.thumb_cache/{video_id}_max.jpg`.
+- Rozmiar: obraz przeskalowany w PIL do szerokości `cols * cell_w_px` px (dopasowany do panelu), bez sztucznego rozciągania.
+- Pozycja: przypięty do dołu panelu; liczba wierszy obliczana przez `ceil(target_h_px / cell_h_px)` na podstawie faktycznego rozmiaru komórki z `TIOCGWINSZ`.
+- Centrowanie poziome: offset = `(pane_width - img_cols) // 2`.
+- Pre-download: podczas synchronizacji thumbnails pobierane są równolegle (10 wątków) dla wszystkich nowych filmów.
 
 #### Pasek statusu (footer)
 Zawsze widoczny na dole ekranu. Tryby wyświetlania:
