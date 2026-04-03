@@ -562,6 +562,10 @@ class YouTubeTUI:
 
                 stdscr.noutrefresh()
                 left_win.noutrefresh()
+                # touchwin forces curses to rewrite all right-pane cells (including
+                # the blank thumbnail rows), so doupdate() sends spaces to the terminal
+                # and clears the previous Kitty image before we draw the new one.
+                right_win.touchwin()
                 right_win.noutrefresh()
                 curses.doupdate()
 
