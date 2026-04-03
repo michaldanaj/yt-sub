@@ -193,9 +193,10 @@ class YouTubeTUI:
     def _kitty_encode(self, video, cols: int) -> Optional[bytes]:
         """Encodes thumbnail as Kitty terminal graphics protocol bytes (cached).
 
-        Only specifies c= (column width); the terminal auto-calculates the row
-        height to preserve the image's natural aspect ratio, avoiding distortion.
-        Uses mqdefault.jpg (320x180, true 16:9) for clean proportions.
+        Resizes the image to cols*8 x cols*8*9/16 pixels (assuming ~8px cell
+        width) and sends it without c=/r= so the terminal displays it at its
+        natural pixel size — no stretching, correct proportions.
+        Uses maxresdefault.jpg (1280x720) for quality.
         """
         cache_key = (video.id, cols)
         if cache_key in self._thumb_kitty_cache:
@@ -206,20 +207,33 @@ class YouTubeTUI:
             return None
 
         os.makedirs(THUMB_CACHE_DIR, exist_ok=True)
-        # mqdefault = 320x180 true 16:9 (hqdefault has black bars, wrong aspect ratio)
-        cache_path = os.path.join(THUMB_CACHE_DIR, f"{video.id}_mq.jpg")
-        url = f"https://i.ytimg.com/vi/{video.id}/mqdefault.jpg"
+        cache_path = os.path.join(THUMB_CACHE_DIR, f"{video.id}_max.jpg")
+        url = f"https://i.ytimg.com/vi/{video.id}/maxresdefault.jpg"
 
         if not os.path.exists(cache_path):
             try:
                 urllib.request.urlretrieve(url, cache_path)
             except Exception:
-                self._thumb_kitty_cache[cache_key] = None
-                return None
+                # fallback to stored thumbnail_url
+                if not video.thumbnail_url:
+                    self._thumb_kitty_cache[cache_key] = None
+                    return None
+                try:
+                    urllib.request.urlretrieve(video.thumbnail_url, cache_path)
+                except Exception:
+                    self._thumb_kitty_cache[cache_key] = None
+                    return None
 
         try:
             from PIL import Image
             img = Image.open(cache_path).convert("RGB")
+
+            # Scale to target pixel width = cols * 8px/cell, preserve aspect ratio
+            target_w = cols * 8
+            ratio = target_w / img.width
+            target_h = round(img.height * ratio)
+            img = img.resize((target_w, target_h), Image.LANCZOS)
+
             buf = io.BytesIO()
             img.save(buf, format='PNG')
             b64 = base64.standard_b64encode(buf.getvalue()).decode('ascii')
@@ -230,8 +244,9 @@ class YouTubeTUI:
             for i, chunk in enumerate(chunks):
                 more = 1 if i < len(chunks) - 1 else 0
                 if i == 0:
-                    # c= only — no r=, so terminal preserves aspect ratio automatically
-                    payload = f'a=T,f=100,c={cols},q=2,m={more};{chunk}'
+                    # No c=/r= — terminal maps pixels to cells at natural density,
+                    # no forced stretching in either axis.
+                    payload = f'a=T,f=100,q=2,m={more};{chunk}'
                 else:
                     payload = f'm={more};{chunk}'
                 result += f'\033_G{payload}\033\\'.encode('ascii')
