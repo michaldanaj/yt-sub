@@ -6,6 +6,10 @@ import os
 import queue
 import re
 import sys
+import math
+import struct
+import fcntl
+import termios
 import base64
 import io
 import urllib.request
@@ -189,6 +193,18 @@ class YouTubeTUI:
         msg_win.noutrefresh()
         curses.doupdate()
         curses.napms(int(seconds * 1000))
+
+    def _get_cell_px(self) -> tuple:
+        """Returns (cell_h_px, cell_w_px) from TIOCGWINSZ, falling back to 16x8."""
+        try:
+            buf = struct.pack('HHHH', 0, 0, 0, 0)
+            res = fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, buf)
+            rows, cols, xpx, ypx = struct.unpack('HHHH', res)
+            if rows > 0 and cols > 0 and xpx > 0 and ypx > 0:
+                return ypx // rows, xpx // cols
+        except Exception:
+            pass
+        return 16, 8
 
     def _kitty_encode(self, video, cols: int) -> Optional[bytes]:
         """Encodes thumbnail as Kitty terminal graphics protocol bytes (cached).
@@ -500,10 +516,14 @@ class YouTubeTUI:
                 left_width = int(sw * split_ratio)
                 right_width = sw - left_width - 1
 
-                # Thumbnail geometry: fill right pane width, 16:9 with 2:1 cell aspect ratio
-                # cols / (rows * 2) = 16/9  =>  rows = round(cols * 9 / 32)
+                # Thumbnail geometry using actual cell pixel size from TIOCGWINSZ.
+                # Image is PIL-resized to thumb_cols*8 px wide (see _kitty_encode),
+                # so rows = ceil(thumb_cols * 8 * 9/16 / cell_h_px) for 16:9 source.
                 thumb_cols = max(0, right_width - 1)
-                thumb_rows = max(0, round(thumb_cols * 9 / 32))
+                _cell_h, _cell_w = self._get_cell_px()
+                _target_w_px = thumb_cols * 8  # matches _kitty_encode resize target
+                _target_h_px = round(_target_w_px * 9 / 16)   # maxresdefault is 16:9
+                thumb_rows = max(0, math.ceil(_target_h_px / _cell_h))
                 # Only show thumbnail if there's enough room for text too
                 if sh - 1 - thumb_rows < 8:
                     thumb_rows = 0
