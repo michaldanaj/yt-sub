@@ -5,12 +5,14 @@ import json
 import os
 import queue
 import re
+import urllib.request
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from models import Video
 from database import Database
 
 CONFIG_PATH = "config.json"
+THUMB_CACHE_DIR = ".thumb_cache"
 
 class YouTubeTUI:
     """A dual-pane terminal interface with customizable pastel colors and navigation."""
@@ -31,6 +33,9 @@ class YouTubeTUI:
         self.sync_queue = sync_queue
         self.is_syncing = False if sync_queue is None else True
         self.sync_progress = ""
+        self._thumb_pairs: Dict[tuple, int] = {}
+        self._thumb_next_pair = 20  # pairs 1-15 used by UI; reserve 20-255 for thumbnails
+        self._thumb_render_cache: Dict[tuple, Any] = {}  # (video_id, w, h) -> lines or None
 
     def _load_config(self) -> Dict[str, Any]:
         """Loads TUI configuration from file."""
@@ -184,6 +189,88 @@ class YouTubeTUI:
         curses.doupdate()
         curses.napms(int(seconds * 1000))
 
+    def _nearest_xterm256(self, r: int, g: int, b: int) -> int:
+        """Maps an RGB color to the nearest xterm-256 color index (16-255)."""
+        # Color cube: indices 16-231, each channel 0-5 mapped to [0,95,135,175,215,255]
+        levels = [0, 95, 135, 175, 215, 255]
+
+        def nearest_level(v):
+            return min(range(6), key=lambda i: abs(levels[i] - v))
+
+        ri, gi, bi = nearest_level(r), nearest_level(g), nearest_level(b)
+        cube_r, cube_g, cube_b = levels[ri], levels[gi], levels[bi]
+        cube_dist = (r - cube_r) ** 2 + (g - cube_g) ** 2 + (b - cube_b) ** 2
+        cube_idx = 16 + 36 * ri + 6 * gi + bi
+
+        # Grayscale ramp: indices 232-255, values 8,18,...,238
+        gray = (r + g + b) // 3
+        gray_level = min(23, max(0, round((gray - 8) / 10)))
+        gray_val = 8 + gray_level * 10
+        gray_dist = (r - gray_val) ** 2 + (g - gray_val) ** 2 + (b - gray_val) ** 2
+
+        return cube_idx if cube_dist <= gray_dist else 232 + gray_level
+
+    def _get_thumb_pair(self, fg: int, bg: int) -> int:
+        """Returns a curses color pair number for the given fg/bg xterm-256 indices."""
+        key = (fg, bg)
+        if key in self._thumb_pairs:
+            return self._thumb_pairs[key]
+        if self._thumb_next_pair > 255:
+            return 0
+        pair_num = self._thumb_next_pair
+        try:
+            curses.init_pair(pair_num, fg, bg)
+            self._thumb_pairs[key] = pair_num
+            self._thumb_next_pair += 1
+        except curses.error:
+            return 0
+        return pair_num
+
+    def _render_thumbnail(self, video, width: int, height: int):
+        """Downloads and renders thumbnail as a list of rows of (pair, char) tuples.
+        Uses ▀ (upper-half block) so each character cell represents two pixel rows,
+        fg = top pixel color, bg = bottom pixel color.
+        Returns None if thumbnail cannot be displayed."""
+        cache_key = (video.id, width, height)
+        if cache_key in self._thumb_render_cache:
+            return self._thumb_render_cache[cache_key]
+
+        if not video.thumbnail_url or width < 4 or height < 2:
+            self._thumb_render_cache[cache_key] = None
+            return None
+
+        os.makedirs(THUMB_CACHE_DIR, exist_ok=True)
+        cache_path = os.path.join(THUMB_CACHE_DIR, f"{video.id}.jpg")
+
+        if not os.path.exists(cache_path):
+            try:
+                urllib.request.urlretrieve(video.thumbnail_url, cache_path)
+            except Exception:
+                self._thumb_render_cache[cache_key] = None
+                return None
+
+        try:
+            from PIL import Image
+            img = Image.open(cache_path).convert("RGB")
+            img = img.resize((width, height * 2), Image.LANCZOS)
+
+            lines = []
+            for row in range(height):
+                line = []
+                for col in range(width):
+                    tr, tg, tb = img.getpixel((col, row * 2))
+                    br, bg_c, bb = img.getpixel((col, row * 2 + 1))
+                    fg = self._nearest_xterm256(tr, tg, tb)
+                    bg = self._nearest_xterm256(br, bg_c, bb)
+                    line.append(self._get_thumb_pair(fg, bg))
+                lines.append(line)
+
+            self._thumb_render_cache[cache_key] = lines
+            return lines
+        except Exception:
+            self._thumb_render_cache[cache_key] = None
+            return None
+
     def _draw_left_pane(self, win, width, height):
         """Renders the video list pane."""
         win.erase()
@@ -297,6 +384,29 @@ class YouTubeTUI:
                     if y < height:
                         self._safe_addstr(win, y, 0, w_line, curses.color_pair(8))
                         y += 1
+
+        # Thumbnail at the bottom
+        # Each half-block char (▀) represents 2 pixel rows; aspect ratio ≈ W/(H*2) = 16/9
+        # => W = H * 32 / 9. For a given width: H = round(W * 9 / 32).
+        thumb_width = min(width - 1, 53)
+        thumb_height = max(4, round(thumb_width * 9 / 32))
+        rows_needed = thumb_height + 2  # separator + thumb rows
+        if y + rows_needed <= height and thumb_width >= 4:
+            y += 1
+            if y < height:
+                self._safe_addstr(win, y, 0, "-" * (width - 1), curses.A_DIM)
+                y += 1
+            lines = self._render_thumbnail(video, thumb_width, min(thumb_height, height - y))
+            if lines:
+                for line in lines:
+                    if y >= height:
+                        break
+                    for col, pair in enumerate(line):
+                        try:
+                            win.addstr(y, col, '▀', curses.color_pair(pair))
+                        except curses.error:
+                            pass
+                    y += 1
 
     def _draw_help_overlay(self, stdscr):
         """Renders a help overlay in the center of the screen."""
