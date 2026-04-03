@@ -26,21 +26,32 @@ def background_sync(db: Database, client: YouTubeClient, sync_queue: queue.Queue
         new_videos = client.sync_data(channels, sync_start_rfc3339, channel_stats, progress_callback=progress)
         
         if new_videos:
+            progress(f"Saving {len(new_videos)} videos to DB...")
             # Set last_synced timestamp
             now_rfc3339 = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             for v in new_videos:
                 v.last_synced = now_rfc3339
                 
-            db.save_videos(new_videos)
-            # Push new videos to TUI
-            sync_queue.put({"type": "videos", "data": new_videos})
+            try:
+                db.save_videos(new_videos)
+                # Push new videos to TUI
+                sync_queue.put({"type": "videos", "data": new_videos})
+            except Exception as e:
+                progress(f"DB Error: {str(e)}")
+                raise e
             
         # Update metadata with current time
         now_rfc3339 = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         db.set_last_update(now_rfc3339)
         
     except Exception as e:
-        progress(f"Sync error: {str(e)}")
+        import traceback
+        error_msg = f"Sync error: {str(e)}"
+        progress(error_msg)
+        # Log to file for debugging
+        with open("sync_error.log", "a") as f:
+            f.write(f"{datetime.now()}: {error_msg}\n")
+            f.write(traceback.format_exc() + "\n")
     finally:
         sync_queue.put({"type": "done"})
 

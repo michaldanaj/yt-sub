@@ -390,10 +390,28 @@ class YouTubeTUI:
                             elif mtype == "videos":
                                 new_batch = msg.get("data", [])
                                 if new_batch:
-                                    self.videos = new_batch + self.videos
-                                    self.selected_index += len(new_batch)
+                                    # Remember current selected video ID if possible
+                                    sel_vid_id = None
+                                    if self.videos and self.selected_index < len(self.videos):
+                                        sel_vid_id = self.videos[self.selected_index].id
+
+                                    # Merge and deduplicate by ID
+                                    video_dict = {v.id: v for v in self.videos}
+                                    for v in new_batch:
+                                        video_dict[v.id] = v # Overwrite with new data
+                                    
+                                    # Convert back to list and sort by date DESC
+                                    self.videos = sorted(video_dict.values(), key=lambda x: x.published_at, reverse=True)
+                                    
+                                    # Restore selection by ID or adjust index
+                                    if sel_vid_id:
+                                        for i, v in enumerate(self.videos):
+                                            if v.id == sel_vid_id:
+                                                self.selected_index = i
+                                                break
+                                    
                                     self.display_items = self._get_display_list()
-                                    self._show_message(stdscr, f"Background sync: {len(new_batch)} new videos added", 2)
+                                    self._show_message(stdscr, f"Sync complete: {len(new_batch)} items updated/added", 2)
                                     needs_redraw = True
                 except queue.Empty:
                     pass
