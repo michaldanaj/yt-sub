@@ -193,10 +193,9 @@ class YouTubeTUI:
 
     def _draw_left_pane(self, win, width, height):
         """Renders the video list pane."""
-        win.clear()
+        win.erase()
         if not self.display_items:
             self._safe_addstr(win, 0, 0, "No videos match filters.", curses.A_DIM)
-            win.refresh()
             return
 
         current_display_idx = 0
@@ -261,7 +260,7 @@ class YouTubeTUI:
                 
     def _draw_right_pane(self, win, width, height):
         """Renders the video details pane."""
-        win.clear()
+        win.erase()
         if not self.videos or self.selected_index >= len(self.videos) or width < 5:
             return
             
