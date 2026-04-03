@@ -397,10 +397,13 @@ class YouTubeTUI:
                                     if self.videos and self.selected_index < len(self.videos):
                                         sel_vid_id = self.videos[self.selected_index].id
 
-                                    # Merge and deduplicate by ID
+                                    # Merge and deduplicate by ID, preserving watch_later status
                                     video_dict = {v.id: v for v in self.videos}
                                     for v in new_batch:
-                                        video_dict[v.id] = v # Overwrite with new data
+                                        if v.id in video_dict:
+                                            # Preserve user-controlled flags
+                                            v.watch_later = video_dict[v.id].watch_later
+                                        video_dict[v.id] = v # Update with new data (metadata, duration, etc)
                                     
                                     # Convert back to list and sort by date DESC
                                     self.videos = sorted(video_dict.values(), key=lambda x: x.published_at, reverse=True)
