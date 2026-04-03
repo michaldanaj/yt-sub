@@ -264,8 +264,12 @@ class YouTubeTUI:
                 self._safe_addstr(win, y, len(label) + 2, str(value), curses.color_pair(8))
                 y += 1
 
-        self._safe_addstr(win, y, 0, video.title, curses.A_BOLD | curses.color_pair(8))
-        y += 2
+        title_lines = textwrap.wrap(video.title, width)
+        for line in title_lines:
+            if y < height:
+                self._safe_addstr(win, y, 0, line, curses.A_BOLD | curses.color_pair(8))
+                y += 1
+        y += 1
         
         add_detail("Channel", video.channel_title)
         add_detail("Published", video.published_at.replace('T', ' ').replace('Z', ''))
