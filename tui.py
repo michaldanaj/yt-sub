@@ -190,22 +190,29 @@ class YouTubeTUI:
         curses.doupdate()
         curses.napms(int(seconds * 1000))
 
-    def _kitty_encode(self, video, cols: int, rows: int) -> Optional[bytes]:
-        """Encodes thumbnail as Kitty terminal graphics protocol bytes (cached)."""
-        cache_key = (video.id, cols, rows)
+    def _kitty_encode(self, video, cols: int) -> Optional[bytes]:
+        """Encodes thumbnail as Kitty terminal graphics protocol bytes (cached).
+
+        Only specifies c= (column width); the terminal auto-calculates the row
+        height to preserve the image's natural aspect ratio, avoiding distortion.
+        Uses mqdefault.jpg (320x180, true 16:9) for clean proportions.
+        """
+        cache_key = (video.id, cols)
         if cache_key in self._thumb_kitty_cache:
             return self._thumb_kitty_cache[cache_key]
 
-        if not video.thumbnail_url or cols < 4 or rows < 2:
+        if cols < 4:
             self._thumb_kitty_cache[cache_key] = None
             return None
 
         os.makedirs(THUMB_CACHE_DIR, exist_ok=True)
-        cache_path = os.path.join(THUMB_CACHE_DIR, f"{video.id}.jpg")
+        # mqdefault = 320x180 true 16:9 (hqdefault has black bars, wrong aspect ratio)
+        cache_path = os.path.join(THUMB_CACHE_DIR, f"{video.id}_mq.jpg")
+        url = f"https://i.ytimg.com/vi/{video.id}/mqdefault.jpg"
 
         if not os.path.exists(cache_path):
             try:
-                urllib.request.urlretrieve(video.thumbnail_url, cache_path)
+                urllib.request.urlretrieve(url, cache_path)
             except Exception:
                 self._thumb_kitty_cache[cache_key] = None
                 return None
@@ -217,15 +224,14 @@ class YouTubeTUI:
             img.save(buf, format='PNG')
             b64 = base64.standard_b64encode(buf.getvalue()).decode('ascii')
 
-            # Kitty protocol: chunk base64 into <=4096-byte pieces
             chunk_size = 4096
             chunks = [b64[i:i + chunk_size] for i in range(0, len(b64), chunk_size)]
             result = b''
             for i, chunk in enumerate(chunks):
                 more = 1 if i < len(chunks) - 1 else 0
                 if i == 0:
-                    # a=T: transmit+display, f=100: PNG, c/r: size in cells, q=2: quiet
-                    payload = f'a=T,f=100,c={cols},r={rows},q=2,m={more};{chunk}'
+                    # c= only — no r=, so terminal preserves aspect ratio automatically
+                    payload = f'a=T,f=100,c={cols},q=2,m={more};{chunk}'
                 else:
                     payload = f'm={more};{chunk}'
                 result += f'\033_G{payload}\033\\'.encode('ascii')
@@ -241,7 +247,7 @@ class YouTubeTUI:
         # Always delete previous Kitty image first — spaces from curses do NOT clear
         # the graphics layer; only the Kitty delete command does.
         delete = b'\033_Ga=d,d=A\033\\'
-        data = self._kitty_encode(video, cols, rows)
+        data = self._kitty_encode(video, cols)
         if not data:
             sys.stdout.buffer.write(delete)
             sys.stdout.buffer.flush()
