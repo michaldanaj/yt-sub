@@ -617,9 +617,11 @@ class YouTubeTUI:
                 # Draw thumbnail via Kitty protocol after curses flushes to screen
                 if thumb_rows > 0 and self.videos and self.selected_index < len(self.videos):
                     video = self.videos[self.selected_index]
-                    # Absolute terminal row where thumbnail starts (0-indexed)
                     thumb_abs_row = sh - 1 - thumb_rows
-                    thumb_abs_col = left_width + 1
+                    # Centre horizontally: image occupies ceil(target_w_px / cell_w) cols
+                    _img_cols = math.ceil(_target_w_px / _cell_w)
+                    _h_offset = max(0, (right_width - _img_cols) // 2)
+                    thumb_abs_col = left_width + 1 + _h_offset
                     self._draw_thumbnail_kitty(thumb_abs_row, thumb_abs_col, thumb_cols, thumb_rows, video)
 
                 if self.show_help:
