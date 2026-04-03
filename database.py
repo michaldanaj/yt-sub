@@ -96,6 +96,7 @@ class Database:
                 ON CONFLICT(id) DO UPDATE SET
                     title=excluded.title,
                     description=excluded.description,
+                    published_at=excluded.published_at,
                     duration=excluded.duration,
                     thumbnail_url=excluded.thumbnail_url,
                     view_count=excluded.view_count,
