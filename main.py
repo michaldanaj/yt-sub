@@ -26,6 +26,11 @@ def background_sync(db: Database, client: YouTubeClient, sync_queue: queue.Queue
         new_videos = client.sync_data(channels, sync_start_rfc3339, channel_stats, progress_callback=progress)
         
         if new_videos:
+            # Set last_synced timestamp
+            now_rfc3339 = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            for v in new_videos:
+                v.last_synced = now_rfc3339
+                
             db.save_videos(new_videos)
             # Push new videos to TUI
             sync_queue.put({"type": "videos", "data": new_videos})
@@ -60,7 +65,17 @@ def main():
             print("Invalid date format. Use YYYY-MM-DD.")
             sys.exit(1)
     else:
-        sync_start_rfc3339 = db.get_last_update()
+        last_update = db.get_last_update()
+        if last_update:
+            # Overlap sync by 24 hours to catch metadata updates (like duration for finished live streams)
+            try:
+                dt = datetime.strptime(last_update, "%Y-%m-%dT%H:%M:%SZ")
+                overlap_dt = dt.replace(tzinfo=timezone.utc).timestamp() - (24 * 3600)
+                sync_start_rfc3339 = datetime.fromtimestamp(overlap_dt, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            except ValueError:
+                sync_start_rfc3339 = last_update
+        else:
+            sync_start_rfc3339 = None
 
     if args.display_channels:
         print("\n--- Channels in Database ---")

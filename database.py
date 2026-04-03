@@ -50,16 +50,19 @@ class Database:
                 comment_count INTEGER,
                 channel_title TEXT,
                 watch_later INTEGER DEFAULT 0,
+                last_synced TEXT,
                 raw_json TEXT,
                 FOREIGN KEY (channel_id) REFERENCES channels(id)
             )
         ''')
         
-        # Check if watch_later column exists (for existing databases)
+        # Check if columns exist (for existing databases)
         cursor.execute("PRAGMA table_info(videos)")
         columns = [col[1] for col in cursor.fetchall()]
         if 'watch_later' not in columns:
             cursor.execute("ALTER TABLE videos ADD COLUMN watch_later INTEGER DEFAULT 0")
+        if 'last_synced' not in columns:
+            cursor.execute("ALTER TABLE videos ADD COLUMN last_synced TEXT")
 
         # Metadata table
         cursor.execute('''
@@ -83,19 +86,24 @@ class Database:
         self.conn.commit()
 
     def save_videos(self, videos: List[Video]):
-        """Persists a list of videos to the database, preserving watch_later status."""
+        """Persists a list of videos to the database, preserving watch_later status and updating metadata."""
         cursor = self.conn.cursor()
         for v in videos:
             cursor.execute('''
                 INSERT INTO videos 
-                (id, channel_id, title, description, published_at, duration, thumbnail_url, view_count, like_count, comment_count, channel_title, watch_later, raw_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, channel_id, title, description, published_at, duration, thumbnail_url, view_count, like_count, comment_count, channel_title, watch_later, last_synced, raw_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
+                    title=excluded.title,
+                    description=excluded.description,
+                    duration=excluded.duration,
+                    thumbnail_url=excluded.thumbnail_url,
                     view_count=excluded.view_count,
                     like_count=excluded.like_count,
                     comment_count=excluded.comment_count,
+                    last_synced=excluded.last_synced,
                     raw_json=excluded.raw_json
-            ''', (v.id, v.channel_id, v.title, v.description, v.published_at, v.duration, v.thumbnail_url, v.view_count, v.like_count, v.comment_count, v.channel_title, 1 if v.watch_later else 0, v.raw_json))
+            ''', (v.id, v.channel_id, v.title, v.description, v.published_at, v.duration, v.thumbnail_url, v.view_count, v.like_count, v.comment_count, v.channel_title, 1 if v.watch_later else 0, v.last_synced, v.raw_json))
         self.conn.commit()
 
     def update_watch_later(self, video_id: str, status: bool):
@@ -114,7 +122,7 @@ class Database:
         """Retrieves all videos from the database, sorted by publication date."""
         cursor = self.conn.cursor()
         cursor.execute('''
-            SELECT id, channel_id, title, description, published_at, duration, thumbnail_url, view_count, like_count, comment_count, channel_title, watch_later, raw_json 
+            SELECT id, channel_id, title, description, published_at, duration, thumbnail_url, view_count, like_count, comment_count, channel_title, watch_later, last_synced, raw_json 
             FROM videos 
             ORDER BY published_at DESC
         ''')
@@ -126,7 +134,7 @@ class Database:
                 id=row[0], channel_id=row[1], title=row[2], description=row[3],
                 published_at=row[4], duration=row[5], thumbnail_url=row[6],
                 view_count=row[7], like_count=row[8], comment_count=row[9],
-                channel_title=row[10], watch_later=bool(row[11]), raw_json=row[12]
+                channel_title=row[10], watch_later=bool(row[11]), last_synced=row[12], raw_json=row[13]
             ))
         return videos
 
