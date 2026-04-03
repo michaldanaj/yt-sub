@@ -36,6 +36,7 @@ class Video:
     comment_count: Optional[int] = None
     channel_title: str = ""
     watch_later: bool = False
+    last_synced: Optional[str] = None
     raw_json: str = "{}"
 
     @property
