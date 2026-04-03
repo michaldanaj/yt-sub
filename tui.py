@@ -275,8 +275,6 @@ class YouTubeTUI:
 
     def _draw_thumbnail_kitty(self, abs_row: int, abs_col: int, cols: int, rows: int, video):
         """Outputs thumbnail at the given absolute terminal position via Kitty protocol."""
-        # Always delete previous Kitty image first — spaces from curses do NOT clear
-        # the graphics layer; only the Kitty delete command does.
         delete = b'\033_Ga=d,d=A\033\\'
         data = self._kitty_encode(video, cols)
         if not data:
@@ -284,7 +282,9 @@ class YouTubeTUI:
             sys.stdout.buffer.flush()
             return
         cursor_pos = f'\033[{abs_row + 1};{abs_col + 1}H'.encode('ascii')
-        sys.stdout.buffer.write(delete + cursor_pos + data)
+        # \033[s / \033[u — save and restore cursor position so ncurses internal
+        # tracking stays in sync with the actual terminal cursor after our write.
+        sys.stdout.buffer.write(b'\033[s' + delete + cursor_pos + data + b'\033[u')
         sys.stdout.buffer.flush()
 
     def _draw_left_pane(self, win, width, height):
