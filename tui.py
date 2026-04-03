@@ -5,12 +5,21 @@ import json
 import os
 import queue
 import re
+import sys
+import math
+import struct
+import fcntl
+import termios
+import base64
+import io
+import urllib.request
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from models import Video
 from database import Database
 
 CONFIG_PATH = "config.json"
+THUMB_CACHE_DIR = ".thumb_cache"
 
 class YouTubeTUI:
     """A dual-pane terminal interface with customizable pastel colors and navigation."""
@@ -31,6 +40,7 @@ class YouTubeTUI:
         self.sync_queue = sync_queue
         self.is_syncing = False if sync_queue is None else True
         self.sync_progress = ""
+        self._thumb_kitty_cache: Dict[tuple, Any] = {}  # (video_id, cols, rows) -> bytes or None
 
     def _load_config(self) -> Dict[str, Any]:
         """Loads TUI configuration from file."""
@@ -184,6 +194,99 @@ class YouTubeTUI:
         curses.doupdate()
         curses.napms(int(seconds * 1000))
 
+    def _get_cell_px(self) -> tuple:
+        """Returns (cell_h_px, cell_w_px) from TIOCGWINSZ, falling back to 16x8."""
+        try:
+            buf = struct.pack('HHHH', 0, 0, 0, 0)
+            res = fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, buf)
+            rows, cols, xpx, ypx = struct.unpack('HHHH', res)
+            if rows > 0 and cols > 0 and xpx > 0 and ypx > 0:
+                return ypx // rows, xpx // cols
+        except Exception:
+            pass
+        return 16, 8
+
+    def _kitty_encode(self, video, cols: int) -> Optional[bytes]:
+        """Encodes thumbnail as Kitty terminal graphics protocol bytes (cached).
+
+        Resizes the image to cols*8 x cols*8*9/16 pixels (assuming ~8px cell
+        width) and sends it without c=/r= so the terminal displays it at its
+        natural pixel size — no stretching, correct proportions.
+        Uses maxresdefault.jpg (1280x720) for quality.
+        """
+        cache_key = (video.id, cols)
+        if cache_key in self._thumb_kitty_cache:
+            return self._thumb_kitty_cache[cache_key]
+
+        if cols < 4:
+            self._thumb_kitty_cache[cache_key] = None
+            return None
+
+        os.makedirs(THUMB_CACHE_DIR, exist_ok=True)
+        cache_path = os.path.join(THUMB_CACHE_DIR, f"{video.id}_max.jpg")
+        url = f"https://i.ytimg.com/vi/{video.id}/maxresdefault.jpg"
+
+        if not os.path.exists(cache_path):
+            try:
+                urllib.request.urlretrieve(url, cache_path)
+            except Exception:
+                # fallback to stored thumbnail_url
+                if not video.thumbnail_url:
+                    self._thumb_kitty_cache[cache_key] = None
+                    return None
+                try:
+                    urllib.request.urlretrieve(video.thumbnail_url, cache_path)
+                except Exception:
+                    self._thumb_kitty_cache[cache_key] = None
+                    return None
+
+        try:
+            from PIL import Image
+            img = Image.open(cache_path).convert("RGB")
+
+            # Scale to target pixel width = cols * 8px/cell, preserve aspect ratio
+            target_w = cols * 8
+            ratio = target_w / img.width
+            target_h = round(img.height * ratio)
+            img = img.resize((target_w, target_h), Image.LANCZOS)
+
+            buf = io.BytesIO()
+            img.save(buf, format='PNG')
+            b64 = base64.standard_b64encode(buf.getvalue()).decode('ascii')
+
+            chunk_size = 4096
+            chunks = [b64[i:i + chunk_size] for i in range(0, len(b64), chunk_size)]
+            result = b''
+            for i, chunk in enumerate(chunks):
+                more = 1 if i < len(chunks) - 1 else 0
+                if i == 0:
+                    # No c=/r= — terminal maps pixels to cells at natural density,
+                    # no forced stretching in either axis.
+                    payload = f'a=T,f=100,q=2,m={more};{chunk}'
+                else:
+                    payload = f'm={more};{chunk}'
+                result += f'\033_G{payload}\033\\'.encode('ascii')
+
+            self._thumb_kitty_cache[cache_key] = result
+            return result
+        except Exception:
+            self._thumb_kitty_cache[cache_key] = None
+            return None
+
+    def _draw_thumbnail_kitty(self, abs_row: int, abs_col: int, cols: int, rows: int, video):
+        """Outputs thumbnail at the given absolute terminal position via Kitty protocol."""
+        # Always delete previous Kitty image first — spaces from curses do NOT clear
+        # the graphics layer; only the Kitty delete command does.
+        delete = b'\033_Ga=d,d=A\033\\'
+        data = self._kitty_encode(video, cols)
+        if not data:
+            sys.stdout.buffer.write(delete)
+            sys.stdout.buffer.flush()
+            return
+        cursor_pos = f'\033[{abs_row + 1};{abs_col + 1}H'.encode('ascii')
+        sys.stdout.buffer.write(delete + cursor_pos + data)
+        sys.stdout.buffer.flush()
+
     def _draw_left_pane(self, win, width, height):
         """Renders the video list pane."""
         win.erase()
@@ -249,10 +352,13 @@ class YouTubeTUI:
                     self._safe_addstr(win, i, x, " " * (width - x), p(5))
                 self._safe_addstr(win, i, x, title_str, p(5))
                 
-    def _draw_right_pane(self, win, width, height):
-        """Renders the video details pane."""
+    def _draw_right_pane(self, win, width, height, reserved_rows=0):
+        """Renders the video details pane, leaving reserved_rows at the bottom for the thumbnail."""
         win.erase()
         if not self.videos or self.selected_index >= len(self.videos) or width < 5:
+            return
+        height = height - reserved_rows
+        if height < 1:
             return
             
         video = self.videos[self.selected_index]
@@ -409,13 +515,25 @@ class YouTubeTUI:
                 split_ratio = self.config["ui"].get("pane_split_ratio", 0.5)
                 left_width = int(sw * split_ratio)
                 right_width = sw - left_width - 1
-                
+
+                # Thumbnail geometry using actual cell pixel size from TIOCGWINSZ.
+                # Image is PIL-resized to thumb_cols*8 px wide (see _kitty_encode),
+                # so rows = ceil(thumb_cols * 8 * 9/16 / cell_h_px) for 16:9 source.
+                thumb_cols = max(0, right_width - 1)
+                _cell_h, _cell_w = self._get_cell_px()
+                _target_w_px = thumb_cols * 8  # matches _kitty_encode resize target
+                _target_h_px = round(_target_w_px * 9 / 16)   # maxresdefault is 16:9
+                thumb_rows = max(0, math.ceil(_target_h_px / _cell_h))
+                # Only show thumbnail if there's enough room for text too
+                if sh - 1 - thumb_rows < 8:
+                    thumb_rows = 0
+
                 if left_win is None:
                     left_win = curses.newwin(sh - 1, left_width, 0, 0)
                     right_win = curses.newwin(sh - 1, right_width, 0, left_width + 1)
-                
+
                 self._draw_left_pane(left_win, left_width, sh - 1)
-                self._draw_right_pane(right_win, right_width, sh - 1)
+                self._draw_right_pane(right_win, right_width, sh - 1, thumb_rows)
                 
                 stdscr.erase()
                 for y in range(sh - 1):
@@ -489,9 +607,23 @@ class YouTubeTUI:
 
                 stdscr.noutrefresh()
                 left_win.noutrefresh()
+                # touchwin forces curses to rewrite all right-pane cells (including
+                # the blank thumbnail rows), so doupdate() sends spaces to the terminal
+                # and clears the previous Kitty image before we draw the new one.
+                right_win.touchwin()
                 right_win.noutrefresh()
                 curses.doupdate()
-                
+
+                # Draw thumbnail via Kitty protocol after curses flushes to screen
+                if thumb_rows > 0 and self.videos and self.selected_index < len(self.videos):
+                    video = self.videos[self.selected_index]
+                    thumb_abs_row = sh - 1 - thumb_rows
+                    # Centre horizontally: image occupies ceil(target_w_px / cell_w) cols
+                    _img_cols = math.ceil(_target_w_px / _cell_w)
+                    _h_offset = max(0, (right_width - _img_cols) // 2)
+                    thumb_abs_col = left_width + 1 + _h_offset
+                    self._draw_thumbnail_kitty(thumb_abs_row, thumb_abs_col, thumb_cols, thumb_rows, video)
+
                 if self.show_help:
                     self._draw_help_overlay(stdscr)
                     force_redraw = True
