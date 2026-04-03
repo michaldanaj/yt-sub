@@ -269,6 +269,8 @@ class YouTubeTUI:
         
         add_detail("Channel", video.channel_title)
         add_detail("Published", video.published_at.replace('T', ' ').replace('Z', ''))
+        if video.last_synced:
+            add_detail("Synced", video.last_synced.replace('T', ' ').replace('Z', ''))
         add_detail("Duration", video.duration.strip())
         add_detail("Views", f"{video.view_count:,}" if video.view_count is not None else "N/A")
         add_detail("Likes", f"{video.like_count:,}" if video.like_count is not None else "N/A")
