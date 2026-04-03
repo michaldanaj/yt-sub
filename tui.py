@@ -26,6 +26,7 @@ class YouTubeTUI:
         self.config = self._load_config()
         self.display_items = self._get_display_list()
         self.input_buffer = ""
+        self.is_searching = False
         self.show_help = False
         self.sync_queue = sync_queue
         self.is_syncing = False if sync_queue is None else True
