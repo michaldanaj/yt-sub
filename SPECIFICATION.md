@@ -27,16 +27,15 @@ Aplikacja przechowuje pełne informacje dostępne przez API:
 ## 5. Przepływ Logiczny i Synchronizacja
 
 ### 5.1. Synchronizacja Danych
-1. Pobierz aktualną listę subskrypcji i zaktualizuj tabelę `channels`.
-2. Pobierz datę ostatniej synchronizacji z tabeli `metadata`.
-3. Jeśli użytkownik podał `--date-limit`, użyj tej daty jako początku synchronizacji.
-4. Pobierz statystyki kanałów z bazy (średnia dzienna liczba filmów z ostatnich 3 miesięcy).
-5. Pobierz wszystkie nowe filmy od daty ostatniej synchronizacji do dzisiaj, używając adaptacyjnej wielkości paczek (`maxResults`):
-   - Dla każdego kanału: `maxResults = max(średnia_dzienna * dni_od_ostatniego_sync, 2)`.
-   - Jeśli kanał jest nowy (brak danych): `maxResults = 10`.
-   - Wartość jest ograniczona do maksimum 50 (limit API).
-6. Zapisz nowe filmy w bazie danych (używając `ON CONFLICT DO UPDATE`, aby zachować status "Watch Later" dla istniejących filmów).
-7. Zaktualizuj datę ostatniej synchronizacji w `metadata`.
+1. Aplikacja uruchamia się natychmiast, wyświetlając filmy już obecne w bazie danych.
+2. W tle uruchamiany jest wątek synchronizacji:
+   - Pobierz aktualną listę subskrypcji i zaktualizuj tabelę `channels`.
+   - Pobierz datę ostatniej synchronizacji z tabeli `metadata`.
+   - Pobierz statystyki kanałów z bazy (średnia dzienna liczba filmów z ostatnich 3 miesięcy).
+   - Pobierz wszystkie nowe filmy od daty ostatniej synchronizacji do dzisiaj, używając adaptacyjnej wielkości paczek (`maxResults`).
+   - Zapisz nowe filmy w bazie danych (używając `ON CONFLICT DO UPDATE`).
+   - Prześlij nowe filmy do działającego interfejsu TUI, aby zostały dodane na początek listy.
+   - Zaktualizuj datę ostatniej synchronizacji w `metadata`.
 
 
 ### 5.2. Interfejs TUI (Dual-Pane)

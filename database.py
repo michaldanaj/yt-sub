@@ -10,7 +10,7 @@ class Database:
     """Manages SQLite storage for channels and videos."""
     
     def __init__(self):
-        self.conn = sqlite3.connect(DB_PATH)
+        self.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         self._create_tables()
 
     def _create_tables(self):

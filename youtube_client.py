@@ -50,12 +50,12 @@ class YouTubeClient:
             )
         return self._thread_local.youtube
 
-    def get_subscriptions(self) -> List[Channel]:
+    def get_subscriptions(self, progress_callback=None) -> List[Channel]:
         """Fetches detailed information for all subscribed channels."""
         all_channel_ids = []
         next_page_token = None
         
-        print("Fetching subscription IDs...")
+        if progress_callback: progress_callback("Fetching subscription IDs...")
         while True:
             response = self.youtube.subscriptions().list(
                 part="snippet", mine=True, maxResults=50, pageToken=next_page_token
@@ -68,7 +68,7 @@ class YouTubeClient:
             if not next_page_token:
                 break
         
-        print(f"Fetching details for {len(all_channel_ids)} channels...")
+        if progress_callback: progress_callback(f"Fetching details for {len(all_channel_ids)} channels...")
         channels = []
         for i in range(0, len(all_channel_ids), 50):
             batch_ids = all_channel_ids[i:i+50]
@@ -218,9 +218,9 @@ class YouTubeClient:
                 ))
         return detailed_videos
 
-    def sync_data(self, channels: List[Channel], published_after: Optional[str], channel_stats: Dict[str, float] = None) -> List[Video]:
+    def sync_data(self, channels: List[Channel], published_after: Optional[str], channel_stats: Dict[str, float] = None, progress_callback=None) -> List[Video]:
         """Synchronizes new videos from subscriptions in parallel using adaptive batching."""
-        print(f"Syncing videos since {published_after or 'forever'}...")
+        if progress_callback: progress_callback(f"Syncing videos since {published_after or 'forever'}...")
         all_raw_videos = []
         
         with ThreadPoolExecutor(max_workers=20) as executor:
@@ -236,11 +236,11 @@ class YouTubeClient:
                         break
                 
                 completed += 1
-                if completed % 50 == 0 or completed == len(channels):
-                    print(f"Progress: {completed}/{len(channels)} channels synced.")
+                if completed % 20 == 0 or completed == len(channels):
+                    if progress_callback: progress_callback(f"Progress: {completed}/{len(channels)} channels synced.")
 
         if not all_raw_videos:
             return []
             
-        print(f"Fetching details for {len(all_raw_videos)} new videos...")
+        if progress_callback: progress_callback(f"Fetching details for {len(all_raw_videos)} new videos...")
         return self.get_detailed_videos(all_raw_videos)
