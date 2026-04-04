@@ -458,17 +458,282 @@ class YouTubeTUI:
         win.getch()
         self.show_help = False
 
+    def _poll_sync_queue(self, stdscr) -> bool:
+        """Drains the sync queue and applies updates. Returns True if a redraw is needed."""
+        if not self.sync_queue:
+            return False
+        needs_redraw = False
+        try:
+            while True:
+                msg = self.sync_queue.get_nowait()
+                if not isinstance(msg, dict):
+                    continue
+                mtype = msg.get("type")
+                if mtype == "done":
+                    self.is_syncing = False
+                    self.sync_progress = "Complete"
+                    needs_redraw = True
+                elif mtype == "progress":
+                    self.sync_progress = msg.get("message", "")
+                    needs_redraw = True
+                elif mtype == "videos":
+                    new_batch = msg.get("data", [])
+                    if new_batch:
+                        sel_vid_id = self.selected_id
+
+                        # Merge and deduplicate by ID, preserving watch_later status
+                        video_dict = {v.id: v for v in self.videos}
+                        for v in new_batch:
+                            if v.id in video_dict:
+                                v.watch_later = video_dict[v.id].watch_later
+                            video_dict[v.id] = v  # Update with new data (metadata, duration, etc)
+
+                        self.videos = sorted(video_dict.values(), key=lambda x: x.published_at, reverse=True)
+
+                        # Restore selection by ID (no index arithmetic needed)
+                        if sel_vid_id and any(v.id == sel_vid_id for v in self.videos):
+                            self.selected_id = sel_vid_id
+                        elif self.videos:
+                            self.selected_id = self.videos[0].id
+
+                        self.display_items = self._get_display_list()
+                        self._show_message(stdscr, f"Sync complete: {len(new_batch)} items updated/added", 2)
+                        needs_redraw = True
+        except queue.Empty:
+            pass
+        return needs_redraw
+
+    def _draw_status_bar(self, stdscr, sh: int, sw: int):
+        """Renders the bottom status bar."""
+        wl_count = sum(1 for v in self.videos if v.watch_later)
+        threshold = self.config['ui'].get('shorts_threshold_seconds', 90)
+        wl_label = "IST" if self.show_watch_later else "ist"
+        wl_part = f"[l]ater [L]{wl_label} ({wl_count})"
+        shorts_label = "HORTS" if not self.show_shorts else "horts"
+        shorts_part = f"[s]{shorts_label} thre[S]hold ({threshold}s)"
+
+        chan_filter = "Filter: OFF"
+        if self.filter_channel_id:
+            chan_name = "Unknown"
+            for item in self.display_items:
+                if item["type"] == "video" and item["content"].channel_id == self.filter_channel_id:
+                    chan_name = item["content"].channel_title
+                    break
+            chan_filter = f"Filter: {chan_name}"
+
+        search_status = f" | Query: {self.filter_query}" if self.filter_query else ""
+
+        x_footer = 1
+
+        def seg(text, attr=curses.A_REVERSE):
+            nonlocal x_footer
+            if x_footer >= sw:
+                return
+            self._safe_addstr(stdscr, sh - 1, x_footer, text, attr)
+            x_footer += len(text)
+
+        def sep():
+            seg("|", curses.color_pair(9) | curses.A_REVERSE)
+
+        stdscr.move(sh - 1, 0)
+        stdscr.clrtoeol()
+
+        if self.is_searching:
+            seg(f" SEARCH: {self.filter_query}_ ", curses.A_REVERSE | curses.A_BOLD)
+            sep()
+        else:
+            seg(f"[q]uit "); sep()
+            seg(f" [?] help "); sep()
+            seg(f" [/] find "); sep()
+            seg(f" [y]ank "); sep()
+            seg(f" [o]pen "); sep()
+            seg(f" {wl_part} "); sep()
+            seg(f" [d]el "); sep()
+            seg(f" {shorts_part} "); sep()
+            seg(f" [b]y channel "); sep()
+            seg(f" {chan_filter}{search_status}")
+
+        if self.is_syncing:
+            sep()
+            seg(f" [SYNC: {self.sync_progress}]")
+
+        if self.input_buffer:
+            sep()
+            seg(f" :{self.input_buffer}")
+
+    def _handle_key(self, key: int, count: int, stdscr) -> bool:
+        """Handles a single keypress. Returns True if the application should quit."""
+        if key == ord('q'):
+            return True
+        elif key == 27:  # ESC
+            self.show_watch_later = False
+            self.filter_channel_id = None
+            self.filter_query = ""
+            self.input_buffer = ""
+            self.display_items = self._get_display_list()
+        elif key == ord('?'):
+            self.show_help = True
+        elif key == ord('/'):
+            self.is_searching = True
+            self.input_buffer = ""
+        elif key == ord('y'):
+            v = self._get_selected_video()
+            if v: self._copy_to_clipboard(v.url)
+            self.input_buffer = ""
+        elif key == ord('o'):
+            v = self._get_selected_video()
+            if v: self._open_in_browser(v)
+            self.input_buffer = ""
+        elif key == ord('l'):
+            v = self._get_selected_video()
+            if v:
+                v.watch_later = True
+                self.db.update_watch_later(v.id, True)
+                self._show_message(stdscr, f"Added to Watch Later: {v.title[:30]}...")
+                self.display_items = self._get_display_list()
+            self.input_buffer = ""
+        elif key == ord('L'):
+            self.show_watch_later = not self.show_watch_later
+            self.display_items = self._get_display_list()
+            if self.show_watch_later:
+                video_count = sum(1 for v in self.videos if v.watch_later)
+                if not any(item["type"] == "video" for item in self.display_items):
+                    self._show_message(stdscr, f"Watch Later list is empty (Total: {video_count})")
+            if self.display_items and self._find_current_display_index() == -1:
+                for item in self.display_items:
+                    if item["type"] == "video":
+                        self.selected_id = item["content"].id; break
+            self.input_buffer = ""
+        elif key == ord('d'):
+            v = self._get_selected_video()
+            if v and v.watch_later:
+                v.watch_later = False
+                self.db.update_watch_later(v.id, False)
+                self._show_message(stdscr, "Removed from Watch Later")
+                self.display_items = self._get_display_list()
+            self.input_buffer = ""
+        elif key == ord('s'):
+            self.show_shorts = not self.show_shorts
+            self.display_items = self._get_display_list()
+            self.input_buffer = ""
+        elif key == ord('S'):
+            self._set_shorts_threshold(stdscr)
+            self.display_items = self._get_display_list()
+            self.input_buffer = ""
+        elif key == ord('b'):
+            if self.filter_channel_id:
+                self.filter_channel_id = None
+            else:
+                v = self._get_selected_video()
+                if v: self.filter_channel_id = v.channel_id
+            self.display_items = self._get_display_list()
+            self.input_buffer = ""
+        elif key in [curses.KEY_UP, ord('k')]:
+            curr = self._find_current_display_index()
+            moves = count
+            target = curr
+            while moves > 0 and target > 0:
+                target -= 1
+                if self.display_items[target]["type"] == "video":
+                    self.selected_id = self.display_items[target]["content"].id
+                    moves -= 1
+            self.input_buffer = ""
+        elif key in [curses.KEY_DOWN, ord('j')]:
+            curr = self._find_current_display_index()
+            moves = count
+            target = curr
+            while moves > 0 and target < len(self.display_items) - 1:
+                target += 1
+                if self.display_items[target]["type"] == "video":
+                    self.selected_id = self.display_items[target]["content"].id
+                    moves -= 1
+            self.input_buffer = ""
+        elif key == ord('J'):
+            curr = self._find_current_display_index()
+            days = count
+            target = curr
+            while days > 0 and target < len(self.display_items) - 1:
+                target += 1
+                if self.display_items[target]["type"] == "header": days -= 1
+            for idx in range(target, len(self.display_items)):
+                if self.display_items[idx]["type"] == "video":
+                    self.selected_id = self.display_items[idx]["content"].id; break
+            self.input_buffer = ""
+        elif key == ord('K'):
+            curr = self._find_current_display_index()
+            days = count
+            target = curr
+            if target > 0 and self.display_items[target - 1]["type"] == "header": target -= 1
+            while days > 0 and target > 0:
+                target -= 1
+                if self.display_items[target]["type"] == "header": days -= 1
+            for idx in range(target, len(self.display_items)):
+                if self.display_items[idx]["type"] == "video":
+                    self.selected_id = self.display_items[idx]["content"].id; break
+            self.input_buffer = ""
+        elif key == ord('G'):
+            if self.input_buffer:
+                line = min(count, len(self.display_items))
+                idx = max(0, line - 1)
+                for sub in range(idx, len(self.display_items)):
+                    if self.display_items[sub]["type"] == "video":
+                        self.selected_id = self.display_items[sub]["content"].id; break
+            else:
+                for idx in range(len(self.display_items) - 1, -1, -1):
+                    if self.display_items[idx]["type"] == "video":
+                        self.selected_id = self.display_items[idx]["content"].id; break
+            self.input_buffer = ""
+        elif key == ord('g'):
+            if self.input_buffer == "g":
+                for idx in range(len(self.display_items)):
+                    if self.display_items[idx]["type"] == "video":
+                        self.selected_id = self.display_items[idx]["content"].id; break
+                self.input_buffer = ""
+            else:
+                self.input_buffer = "g"
+        elif key == ord('z'):
+            if self.input_buffer == "z":
+                curr = self._find_current_display_index()
+                if curr != -1:
+                    self.top_line = max(0, curr - (self._last_sh - 1) // 2)
+                self.input_buffer = ""
+            else:
+                self.input_buffer = "z"
+        elif key in [curses.KEY_PPAGE, 2]:
+            curr = self._find_current_display_index()
+            target = max(0, curr - max(1, self._last_sh - 2))
+            for idx in range(target, len(self.display_items)):
+                if self.display_items[idx]["type"] == "video":
+                    self.selected_id = self.display_items[idx]["content"].id; break
+            self.input_buffer = ""
+        elif key in [curses.KEY_NPAGE, 6]:
+            curr = self._find_current_display_index()
+            target = min(len(self.display_items) - 1, curr + max(1, self._last_sh - 2))
+            for idx in range(target, -1, -1):
+                if self.display_items[idx]["type"] == "video":
+                    self.selected_id = self.display_items[idx]["content"].id; break
+            self.input_buffer = ""
+        elif key in [ord('\n'), curses.KEY_ENTER]:
+            v = self._get_selected_video()
+            if v: self._play_video(v)
+            self.input_buffer = ""
+        else:
+            self.input_buffer = ""
+        return False
+
     def run(self, stdscr):
         self._init_colors()
         curses.curs_set(0)
         stdscr.clear()
-        
+        self._last_sh = 24  # fallback for _handle_key before first frame
+
         force_redraw = True
         left_win = None
         right_win = None
-        
+
         while True:
             sh, sw = stdscr.getmaxyx()
+            self._last_sh = sh
             if sh < 5 or sw < 10:
                 stdscr.erase()
                 self._safe_addstr(stdscr, 0, 0, "Terminal too small")
@@ -476,49 +741,8 @@ class YouTubeTUI:
                 if stdscr.getch() == ord('q'): break
                 continue
 
-            # Poll sync queue
-            needs_redraw = force_redraw
+            needs_redraw = force_redraw or self._poll_sync_queue(stdscr)
             force_redraw = False
-            if self.sync_queue:
-                try:
-                    while True:
-                        msg = self.sync_queue.get_nowait()
-                        if isinstance(msg, dict):
-                            mtype = msg.get("type")
-                            if mtype == "done":
-                                self.is_syncing = False
-                                self.sync_progress = "Complete"
-                                needs_redraw = True
-                            elif mtype == "progress":
-                                self.sync_progress = msg.get("message", "")
-                                needs_redraw = True
-                            elif mtype == "videos":
-                                new_batch = msg.get("data", [])
-                                if new_batch:
-                                    sel_vid_id = self.selected_id
-
-                                    # Merge and deduplicate by ID, preserving watch_later status
-                                    video_dict = {v.id: v for v in self.videos}
-                                    for v in new_batch:
-                                        if v.id in video_dict:
-                                            # Preserve user-controlled flags
-                                            v.watch_later = video_dict[v.id].watch_later
-                                        video_dict[v.id] = v  # Update with new data (metadata, duration, etc)
-
-                                    # Convert back to list and sort by date DESC
-                                    self.videos = sorted(video_dict.values(), key=lambda x: x.published_at, reverse=True)
-
-                                    # Restore selection by ID (no index arithmetic needed)
-                                    if sel_vid_id and any(v.id == sel_vid_id for v in self.videos):
-                                        self.selected_id = sel_vid_id
-                                    elif self.videos:
-                                        self.selected_id = self.videos[0].id
-                                    
-                                    self.display_items = self._get_display_list()
-                                    self._show_message(stdscr, f"Sync complete: {len(new_batch)} items updated/added", 2)
-                                    needs_redraw = True
-                except queue.Empty:
-                    pass
 
             if needs_redraw or left_win is None:
                 split_ratio = self.config["ui"].get("pane_split_ratio", 0.5)
@@ -533,7 +757,6 @@ class YouTubeTUI:
                 _target_w_px = thumb_cols * 8  # matches _kitty_encode resize target
                 _target_h_px = round(_target_w_px * 9 / 16)   # maxresdefault is 16:9
                 thumb_rows = max(0, math.ceil(_target_h_px / _cell_h))
-                # Only show thumbnail if there's enough room for text too
                 if sh - 1 - thumb_rows < 8:
                     thumb_rows = 0
 
@@ -543,76 +766,13 @@ class YouTubeTUI:
 
                 self._draw_left_pane(left_win, left_width, sh - 1)
                 self._draw_right_pane(right_win, right_width, sh - 1, thumb_rows)
-                
+
                 stdscr.erase()
                 for y in range(sh - 1):
                     try: stdscr.addch(y, left_width, curses.ACS_VLINE, curses.A_DIM)
                     except: pass
-                
-                wl_count = sum(1 for v in self.videos if v.watch_later)
-                threshold = self.config['ui'].get('shorts_threshold_seconds', 90)
-                wl_label = "IST" if self.show_watch_later else "ist"
-                wl_part = f"[l]ater [L]{wl_label} ({wl_count})"
-                shorts_label = "HORTS" if not self.show_shorts else "horts"
-                shorts_part = f"[s]{shorts_label} thre[S]hold ({threshold}s)"
-                
-                chan_filter = "Filter: OFF"
-                if self.filter_channel_id:
-                    chan_name = "Unknown"
-                    if self.display_items:
-                        for item in self.display_items:
-                            if item["type"] == "video" and item["content"].channel_id == self.filter_channel_id:
-                                chan_name = item["content"].channel_title
-                                break
-                    chan_filter = f"Filter: {chan_name}"
-                
-                search_status = f" | Query: {self.filter_query}" if self.filter_query else ""
-                
-                def add_footer_seg(text, attr=curses.A_REVERSE):
-                    nonlocal x_footer
-                    if x_footer >= sw: return
-                    self._safe_addstr(stdscr, sh - 1, x_footer, text, attr)
-                    x_footer += len(text)
 
-                def add_footer_sep():
-                    add_footer_seg("|", curses.color_pair(9) | curses.A_REVERSE)
-
-                stdscr.move(sh - 1, 0)
-                stdscr.clrtoeol()
-                x_footer = 1
-                
-                # Highlight search mode in footer
-                if self.is_searching:
-                    add_footer_seg(f" SEARCH: {self.filter_query}_ ", curses.A_REVERSE | curses.A_BOLD)
-                    add_footer_sep()
-                else:
-                    add_footer_seg(f"[q]uit ")
-                    add_footer_sep()
-                    add_footer_seg(f" [?] help ")
-                    add_footer_sep()
-                    add_footer_seg(f" [/] find ")
-                    add_footer_sep()
-                    add_footer_seg(f" [y]ank ")
-                    add_footer_sep()
-                    add_footer_seg(f" [o]pen ")
-                    add_footer_sep()
-                    add_footer_seg(f" {wl_part} ")
-                    add_footer_sep()
-                    add_footer_seg(f" [d]el ")
-                    add_footer_sep()
-                    add_footer_seg(f" {shorts_part} ")
-                    add_footer_sep()
-                    add_footer_seg(f" [b]y channel ")
-                    add_footer_sep()
-                    add_footer_seg(f" {chan_filter}{search_status}")
-
-                if self.is_syncing:
-                    add_footer_sep()
-                    add_footer_seg(f" [SYNC: {self.sync_progress}]")
-                
-                if self.input_buffer:
-                    add_footer_sep()
-                    add_footer_seg(f" :{self.input_buffer}")
+                self._draw_status_bar(stdscr, sh, sw)
 
                 stdscr.noutrefresh()
                 left_win.noutrefresh()
@@ -626,13 +786,11 @@ class YouTubeTUI:
                 # Draw thumbnail via Kitty protocol after curses flushes to screen
                 thumb_video = self._get_selected_video()
                 if thumb_rows > 0 and thumb_video:
-                    video = thumb_video
                     thumb_abs_row = sh - 1 - thumb_rows
-                    # Centre horizontally: image occupies ceil(target_w_px / cell_w) cols
                     _img_cols = math.ceil(_target_w_px / _cell_w)
                     _h_offset = max(0, (right_width - _img_cols) // 2)
                     thumb_abs_col = left_width + 1 + _h_offset
-                    self._draw_thumbnail_kitty(thumb_abs_row, thumb_abs_col, thumb_cols, thumb_rows, video)
+                    self._draw_thumbnail_kitty(thumb_abs_row, thumb_abs_col, thumb_cols, thumb_rows, thumb_video)
 
                 if self.show_help:
                     self._draw_help_overlay(stdscr)
@@ -642,28 +800,27 @@ class YouTubeTUI:
             stdscr.timeout(100)
             key = stdscr.getch()
             if key == -1: continue
-            
+
             if key == curses.KEY_RESIZE:
                 left_win = None
                 force_redraw = True
                 continue
 
             force_redraw = True
-            
-            # --- LIVE SEARCH MODE HANDLING ---
+
+            # Live search mode
             if self.is_searching:
-                if key in [ord('\n'), curses.KEY_ENTER, 27]: # Enter or ESC
+                if key in [ord('\n'), curses.KEY_ENTER, 27]:  # Enter or ESC
                     self.is_searching = False
-                elif key in [curses.KEY_BACKSPACE, 127, 8]: # Backspace
+                elif key in [curses.KEY_BACKSPACE, 127, 8]:   # Backspace
                     self.filter_query = self.filter_query[:-1]
                     self.display_items = self._get_display_list()
-                elif 32 <= key <= 126: # Typable characters
+                elif 32 <= key <= 126:                         # Typable characters
                     self.filter_query += chr(key)
                     self.display_items = self._get_display_list()
                 continue
-            # ---------------------------------
-            
-            # Handle counts and other keys...
+
+            # Numeric prefix accumulation
             if ord('0') <= key <= ord('9'):
                 if self.input_buffer == "" and key == ord('0'): pass
                 else:
@@ -672,157 +829,8 @@ class YouTubeTUI:
 
             count = int(self.input_buffer) if self.input_buffer and self.input_buffer.isdigit() else 1
 
-            if key == ord('q'): break
-            elif key == 27: # ESC (out of search mode)
-                self.show_watch_later = False
-                self.filter_channel_id = None
-                self.filter_query = ""
-                self.input_buffer = ""
-                self.display_items = self._get_display_list()
-            elif key == ord('?'): self.show_help = True
-            elif key == ord('/'):
-                self.is_searching = True
-                self.input_buffer = ""
-                continue
-            elif key == ord('y'):
-                v = self._get_selected_video()
-                if v: self._copy_to_clipboard(v.url)
-                self.input_buffer = ""
-            elif key == ord('o'):
-                v = self._get_selected_video()
-                if v: self._open_in_browser(v)
-                self.input_buffer = ""
-            elif key == ord('l'):
-                v = self._get_selected_video()
-                if v:
-                    v.watch_later = True
-                    self.db.update_watch_later(v.id, True)
-                    self._show_message(stdscr, f"Added to Watch Later: {v.title[:30]}...")
-                    self.display_items = self._get_display_list()
-                self.input_buffer = ""
-            elif key == ord('L'):
-                self.show_watch_later = not self.show_watch_later
-                self.display_items = self._get_display_list()
-                if self.show_watch_later:
-                    video_count = sum(1 for v in self.videos if v.watch_later)
-                    if not any(item["type"] == "video" for item in self.display_items):
-                        self._show_message(stdscr, f"Watch Later list is empty (Total: {video_count})")
-                if self.display_items and self._find_current_display_index() == -1:
-                    for item in self.display_items:
-                        if item["type"] == "video":
-                            self.selected_id = item["content"].id; break
-                self.input_buffer = ""
-            elif key == ord('d'):
-                v = self._get_selected_video()
-                if v and v.watch_later:
-                    v.watch_later = False
-                    self.db.update_watch_later(v.id, False)
-                    self._show_message(stdscr, "Removed from Watch Later")
-                    self.display_items = self._get_display_list()
-                self.input_buffer = ""
-            elif key == ord('s'):
-                self.show_shorts = not self.show_shorts
-                self.display_items = self._get_display_list()
-                self.input_buffer = ""
-            elif key == ord('S'):
-                self._set_shorts_threshold(stdscr)
-                self.display_items = self._get_display_list()
-                self.input_buffer = ""
-            elif key == ord('b'):
-                if self.filter_channel_id:
-                    self.filter_channel_id = None
-                else:
-                    v = self._get_selected_video()
-                    if v: self.filter_channel_id = v.channel_id
-                self.display_items = self._get_display_list()
-                self.input_buffer = ""
-            elif key in [curses.KEY_UP, ord('k')]:
-                curr = self._find_current_display_index()
-                moves = count
-                target = curr
-                while moves > 0 and target > 0:
-                    target -= 1
-                    if self.display_items[target]["type"] == "video":
-                        self.selected_id = self.display_items[target]["content"].id
-                        moves -= 1
-                self.input_buffer = ""
-            elif key in [curses.KEY_DOWN, ord('j')]:
-                curr = self._find_current_display_index()
-                moves = count
-                target = curr
-                while moves > 0 and target < len(self.display_items) - 1:
-                    target += 1
-                    if self.display_items[target]["type"] == "video":
-                        self.selected_id = self.display_items[target]["content"].id
-                        moves -= 1
-                self.input_buffer = ""
-            elif key == ord('J'):
-                curr = self._find_current_display_index()
-                days = count
-                target = curr
-                while days > 0 and target < len(self.display_items) - 1:
-                    target += 1
-                    if self.display_items[target]["type"] == "header": days -= 1
-                for idx in range(target, len(self.display_items)):
-                    if self.display_items[idx]["type"] == "video":
-                        self.selected_id = self.display_items[idx]["content"].id; break
-                self.input_buffer = ""
-            elif key == ord('K'):
-                curr = self._find_current_display_index()
-                days = count
-                target = curr
-                if target > 0 and self.display_items[target - 1]["type"] == "header": target -= 1
-                while days > 0 and target > 0:
-                    target -= 1
-                    if self.display_items[target]["type"] == "header": days -= 1
-                for idx in range(target, len(self.display_items)):
-                    if self.display_items[idx]["type"] == "video":
-                        self.selected_id = self.display_items[idx]["content"].id; break
-                self.input_buffer = ""
-            elif key == ord('G'):
-                if self.input_buffer:
-                    line = min(count, len(self.display_items))
-                    idx = max(0, line - 1)
-                    for sub in range(idx, len(self.display_items)):
-                        if self.display_items[sub]["type"] == "video":
-                            self.selected_id = self.display_items[sub]["content"].id; break
-                else:
-                    for idx in range(len(self.display_items) - 1, -1, -1):
-                        if self.display_items[idx]["type"] == "video":
-                            self.selected_id = self.display_items[idx]["content"].id; break
-                self.input_buffer = ""
-            elif key == ord('g'):
-                if self.input_buffer == "g":
-                    for idx in range(len(self.display_items)):
-                        if self.display_items[idx]["type"] == "video":
-                            self.selected_id = self.display_items[idx]["content"].id; break
-                    self.input_buffer = ""
-                else: self.input_buffer = "g"
-            elif key == ord('z'):
-                if self.input_buffer == "z":
-                    curr = self._find_current_display_index()
-                    if curr != -1: self.top_line = max(0, curr - (sh - 1) // 2)
-                    self.input_buffer = ""
-                else: self.input_buffer = "z"
-            elif key in [curses.KEY_PPAGE, 2]:
-                curr = self._find_current_display_index()
-                target = max(0, curr - max(1, sh - 2))
-                for idx in range(target, len(self.display_items)):
-                    if self.display_items[idx]["type"] == "video":
-                        self.selected_id = self.display_items[idx]["content"].id; break
-                self.input_buffer = ""
-            elif key in [curses.KEY_NPAGE, 6]:
-                curr = self._find_current_display_index()
-                target = min(len(self.display_items) - 1, curr + max(1, sh - 2))
-                for idx in range(target, -1, -1):
-                    if self.display_items[idx]["type"] == "video":
-                        self.selected_id = self.display_items[idx]["content"].id; break
-                self.input_buffer = ""
-            elif key in [ord('\n'), curses.KEY_ENTER]:
-                v = self._get_selected_video()
-                if v: self._play_video(v)
-                self.input_buffer = ""
-            else: self.input_buffer = ""
+            if self._handle_key(key, count, stdscr):
+                break
 
 def start_tui(videos: List[Video], db: Database, sync_queue: queue.Queue = None):
     if not videos: videos = []
