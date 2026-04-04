@@ -546,9 +546,16 @@ class YouTubeTUI:
         y += 1
         
         add_detail("Channel", video.channel_title)
-        add_detail("Published", video.published_at.replace('T', ' ').replace('Z', ''))
+        def fmt_local(utc_str: str) -> str:
+            try:
+                utc_dt = datetime.strptime(utc_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                return utc_dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                return utc_str.replace('T', ' ').replace('Z', '')
+
+        add_detail("Published", fmt_local(video.published_at))
         if video.last_synced:
-            add_detail("Synced", video.last_synced.replace('T', ' ').replace('Z', ''))
+            add_detail("Synced", fmt_local(video.last_synced))
         add_detail("Duration", video.duration.strip())
         add_detail("Views", f"{video.view_count:,}" if video.view_count is not None else "N/A")
         add_detail("Likes", f"{video.like_count:,}" if video.like_count is not None else "N/A")
