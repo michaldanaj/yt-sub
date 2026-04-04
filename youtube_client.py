@@ -1,11 +1,14 @@
 import os
 import pickle
 import json
+import logging
 import threading
 import re
 from typing import List, Dict, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 import google_auth_oauthlib.flow
 import googleapiclient.discovery
@@ -173,8 +176,8 @@ class YouTubeClient:
                 if not next_page_token:
                     break
                     
-        except googleapiclient.errors.HttpError:
-            pass
+        except googleapiclient.errors.HttpError as e:
+            logger.warning("HttpError fetching playlist %s (channel %s): %s", playlist_id, channel.id, e)
             
         return videos, channel.id, latest_video_date
 

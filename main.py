@@ -1,4 +1,5 @@
 import argparse
+import logging
 import sys
 import threading
 import queue
@@ -7,6 +8,12 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Optional
+
+logging.basicConfig(
+    filename="sync_error.log",
+    level=logging.WARNING,
+    format="%(asctime)s %(name)s %(levelname)s: %(message)s",
+)
 
 from youtube_client import YouTubeClient
 from database import Database
