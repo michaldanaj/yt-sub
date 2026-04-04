@@ -4,7 +4,7 @@ import json
 import logging
 import threading
 import re
-from typing import List, Dict, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
@@ -28,15 +28,27 @@ SYNC_MAX_WORKERS = 20
 # Fixed display width for duration strings, e.g. "1:23:45" or "  9:59"
 DURATION_DISPLAY_WIDTH = 7
 
+
 class YouTubeClient:
-    """Handles all interactions with the YouTube Data API."""
-    
-    def __init__(self):
+    """Handles all interactions with the YouTube Data API v3.
+
+    Authentication uses OAuth 2.0.  Credentials are cached in
+    ``credentials.pickle`` so subsequent runs skip the browser flow.
+    Playlist fetching is parallelised across channels using a thread pool;
+    each worker gets its own API service instance via thread-local storage.
+    """
+
+    def __init__(self) -> None:
+        """Authenticates with the YouTube API and builds the service object."""
         self._thread_local = threading.local()
         self.youtube = self._get_authenticated_service()
 
     def _get_authenticated_service(self):
-        """Authenticates and returns the YouTube service."""
+        """Loads cached credentials or runs the OAuth browser flow.
+
+        Returns:
+            An authorised ``googleapiclient`` Resource for the YouTube v3 API.
+        """
         if os.path.exists(CREDENTIALS_PICKLE):
             with open(CREDENTIALS_PICKLE, "rb") as f:
                 credentials = pickle.load(f)
@@ -51,7 +63,15 @@ class YouTubeClient:
         return googleapiclient.discovery.build("youtube", "v3", credentials=credentials)
 
     def _get_service_for_thread(self):
-        """Returns a thread-safe YouTube service instance."""
+        """Returns a per-thread YouTube service instance.
+
+        Each worker thread needs its own ``googleapiclient`` Resource because
+        the underlying HTTP transport is not thread-safe.  Instances are stored
+        in ``threading.local`` and reused across calls within the same thread.
+
+        Returns:
+            An authorised ``googleapiclient`` Resource for this thread.
+        """
         if not hasattr(self._thread_local, "youtube"):
             with open(CREDENTIALS_PICKLE, "rb") as f:
                 credentials = pickle.load(f)
@@ -60,24 +80,36 @@ class YouTubeClient:
             )
         return self._thread_local.youtube
 
-    def get_subscriptions(self, progress_callback=None) -> List[Channel]:
-        """Fetches detailed information for all subscribed channels."""
+    def get_subscriptions(self, progress_callback: Optional[Callable[[str], None]] = None) -> List[Channel]:
+        """Fetches detailed information for all subscribed channels.
+
+        Paginates through the ``subscriptions.list`` endpoint to collect every
+        channel ID, then batches ``channels.list`` requests (up to 50 IDs each)
+        to retrieve snippet, statistics and content details.
+
+        Args:
+            progress_callback: Optional callable that receives a human-readable
+                status string at key milestones.
+
+        Returns:
+            List of fully populated :class:`Channel` objects.
+        """
         all_channel_ids = []
         next_page_token = None
-        
+
         if progress_callback: progress_callback("Fetching subscription IDs...")
         while True:
             response = self.youtube.subscriptions().list(
                 part="snippet", mine=True, maxResults=50, pageToken=next_page_token
             ).execute()
-            
+
             for item in response["items"]:
                 all_channel_ids.append(item["snippet"]["resourceId"]["channelId"])
-                
+
             next_page_token = response.get("nextPageToken")
             if not next_page_token:
                 break
-        
+
         if progress_callback: progress_callback(f"Fetching details for {len(all_channel_ids)} channels...")
         channels = []
         for i in range(0, len(all_channel_ids), 50):
@@ -86,12 +118,12 @@ class YouTubeClient:
                 part="snippet,contentDetails,statistics",
                 id=",".join(batch_ids)
             ).execute()
-            
+
             for item in response.get("items", []):
                 snippet = item.get("snippet", {})
                 stats = item.get("statistics", {})
                 content = item.get("contentDetails", {})
-                
+
                 channels.append(Channel(
                     id=item["id"],
                     title=snippet.get("title", ""),
@@ -108,7 +140,17 @@ class YouTubeClient:
         return channels
 
     def _parse_duration(self, duration: str) -> str:
-        """Parses ISO 8601 duration to a fixed-width format."""
+        """Converts an ISO 8601 duration string to a fixed-width display string.
+
+        Args:
+            duration: ISO 8601 duration such as ``PT1H2M3S``, ``PT45M``, or
+                ``PT30S``.
+
+        Returns:
+            Right-justified string of width :data:`DURATION_DISPLAY_WIDTH`,
+            e.g. ``  3:45`` or ``1:02:33``.  Returns ``"   0:00"`` for
+            unrecognised input.
+        """
         match = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration)
         if not match:
             return "   0:00"
@@ -117,22 +159,44 @@ class YouTubeClient:
             return f"{h}:{m:02d}:{s:02d}".rjust(DURATION_DISPLAY_WIDTH)
         return f"{m}:{s:02d}".rjust(DURATION_DISPLAY_WIDTH)
 
-    def fetch_videos_from_playlist(self, channel: Channel, published_after: Optional[str], channel_stats: Dict[str, float] = None) -> Tuple[List[Dict], str, Optional[str]]:
-        """Fetches videos from a channel's uploads playlist since a given date using adaptive batching."""
+    def fetch_videos_from_playlist(
+        self,
+        channel: Channel,
+        published_after: Optional[str],
+        channel_stats: Optional[Dict[str, float]] = None,
+    ) -> Tuple[List[Dict], str, Optional[str]]:
+        """Fetches raw playlist items from a channel's uploads playlist.
+
+        Uses adaptive ``maxResults`` based on the channel's historical upload
+        frequency to minimise quota usage while avoiding missed videos.
+
+        Args:
+            channel: Channel whose uploads playlist should be fetched.
+            published_after: ISO 8601 timestamp; only videos published at or
+                after this time are returned.  ``None`` fetches all videos.
+            channel_stats: Mapping of ``channel_id`` to average daily video
+                count, used to calculate the adaptive ``maxResults`` value.
+
+        Returns:
+            A 3-tuple of:
+            - list of raw playlist item dicts from the API,
+            - the channel's ID (passed through for result matching),
+            - ISO 8601 date of the newest video found, or ``None``.
+        """
         youtube = self._get_service_for_thread()
         playlist_id = channel.uploads_playlist_id
         if not playlist_id:
             return [], channel.id, None
-            
+
         videos = []
         latest_video_date = None
         next_page_token = None
 
         # Calculate adaptive maxResults
-        max_results = 50 # Default
+        max_results = 50  # Default
         if channel_stats:
             avg_per_day = channel_stats.get(channel.id)
-            days_passed = 1 # Minimum 1 day
+            days_passed = 1  # Minimum 1 day
             if published_after:
                 try:
                     last_refresh = datetime.strptime(published_after, "%Y-%m-%dT%H:%M:%SZ")
@@ -140,17 +204,17 @@ class YouTubeClient:
                     days_passed = max(1, (delta.days + (1 if delta.seconds > 0 else 0)))
                 except ValueError:
                     pass
-            
+
             if avg_per_day is not None:
                 # Algorithm: max(avg_per_day * days_passed, 2)
                 max_results = max(int(avg_per_day * days_passed + 0.5), 2)
             else:
                 # If channel has no videos in DB yet, use 10
                 max_results = 10
-            
+
             # Cap at 50 as it's the API limit for maxResults
             max_results = min(max_results, 50)
-        
+
         try:
             while True:
                 response = youtube.playlistItems().list(
@@ -159,44 +223,57 @@ class YouTubeClient:
                     maxResults=max_results,
                     pageToken=next_page_token
                 ).execute()
-                
+
                 items = response.get("items", [])
                 if not items:
                     break
-                    
+
                 batch_finished = False
                 for item in items:
-                    video_pub_at = item["contentDetails"].get("videoPublishedAt") or item["snippet"]["publishedAt"]
                     # ISO 8601 strings in YYYY-MM-DDTHH:MM:SSZ format compare correctly as plain strings
+                    video_pub_at = item["contentDetails"].get("videoPublishedAt") or item["snippet"]["publishedAt"]
                     if published_after and video_pub_at < published_after:
                         batch_finished = True
                         break
-                    
+
                     item["channelId"] = channel.id
                     videos.append(item)
                     if latest_video_date is None or video_pub_at > latest_video_date:
                         latest_video_date = video_pub_at
-                
+
                 if batch_finished:
                     break
-                    
+
                 next_page_token = response.get("nextPageToken")
                 if not next_page_token:
                     break
-                    
+
         except googleapiclient.errors.HttpError as e:
             logger.warning("HttpError fetching playlist %s (channel %s): %s", playlist_id, channel.id, e)
-            
+
         return videos, channel.id, latest_video_date
 
     def get_detailed_videos(self, raw_items: List[Dict]) -> List[Video]:
-        """Fetches detailed statistics and descriptions for a list of video items."""
+        """Fetches full video metadata for a list of playlist item dicts.
+
+        Batches ``videos.list`` requests (up to 50 IDs each) to retrieve
+        snippet, content details and statistics.
+
+        Args:
+            raw_items: Playlist item dicts as returned by
+                :meth:`fetch_videos_from_playlist`.
+
+        Returns:
+            List of fully populated :class:`Video` objects.  Videos deleted
+            or made private between the playlist fetch and this call will be
+            absent from the result.
+        """
         if not raw_items:
             return []
-            
+
         video_ids = [item["contentDetails"]["videoId"] for item in raw_items]
         detailed_videos = []
-        
+
         for i in range(0, len(video_ids), 50):
             batch_ids = video_ids[i:i+50]
             response = self.youtube.videos().list(
@@ -209,7 +286,7 @@ class YouTubeClient:
                 stats = item.get("statistics", {})
                 content = item.get("contentDetails", {})
                 vid_id = item["id"]
-                
+
                 detailed_videos.append(Video(
                     id=vid_id,
                     channel_id=snippet.get("channelId", ""),
@@ -226,11 +303,32 @@ class YouTubeClient:
                 ))
         return detailed_videos
 
-    def sync_data(self, channels: List[Channel], published_after: Optional[str], channel_stats: Dict[str, float] = None, progress_callback=None) -> List[Video]:
-        """Synchronizes new videos from subscriptions in parallel using adaptive batching."""
+    def sync_data(
+        self,
+        channels: List[Channel],
+        published_after: Optional[str],
+        channel_stats: Optional[Dict[str, float]] = None,
+        progress_callback: Optional[Callable[[str], None]] = None,
+    ) -> List[Video]:
+        """Syncs new videos from all subscribed channels in parallel.
+
+        Fetches playlist items concurrently using :data:`SYNC_MAX_WORKERS`
+        threads, then retrieves full video details for all collected items.
+
+        Args:
+            channels: List of channels to sync.
+            published_after: ISO 8601 cutoff; only newer videos are returned.
+                ``None`` fetches everything.
+            channel_stats: Per-channel daily upload averages for adaptive
+                batching; see :meth:`fetch_videos_from_playlist`.
+            progress_callback: Optional callable for progress messages.
+
+        Returns:
+            List of new or updated :class:`Video` objects.
+        """
         if progress_callback: progress_callback(f"Syncing videos since {published_after or 'forever'}...")
         all_raw_videos = []
-        
+
         with ThreadPoolExecutor(max_workers=SYNC_MAX_WORKERS) as executor:
             futures = [executor.submit(self.fetch_videos_from_playlist, c, published_after, channel_stats) for c in channels]
             completed = 0
@@ -242,13 +340,13 @@ class YouTubeClient:
                     if c.id == cid:
                         c.latest_video_date = latest_date
                         break
-                
+
                 completed += 1
                 if completed % 20 == 0 or completed == len(channels):
                     if progress_callback: progress_callback(f"Progress: {completed}/{len(channels)} channels synced.")
 
         if not all_raw_videos:
             return []
-            
+
         if progress_callback: progress_callback(f"Fetching details for {len(all_raw_videos)} new videos...")
         return self.get_detailed_videos(all_raw_videos)
