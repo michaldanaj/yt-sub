@@ -21,6 +21,13 @@ SCOPES = ["https://www.googleapis.com/auth/youtube.force-ssl"]
 CREDENTIALS_PICKLE = "credentials.pickle"
 CLIENT_SECRET_FILE = "client_secret_475291016858-5pnovc0dlqgsgv8m933qfk4u8uvs779r.apps.googleusercontent.com.json"
 
+# YouTube API quota allows ~10 000 units/day. Each playlistItems.list costs 1 unit.
+# 20 parallel workers is safe for typical subscription counts (~100-500 channels).
+SYNC_MAX_WORKERS = 20
+
+# Fixed display width for duration strings, e.g. "1:23:45" or "  9:59"
+DURATION_DISPLAY_WIDTH = 7
+
 class YouTubeClient:
     """Handles all interactions with the YouTube Data API."""
     
@@ -107,8 +114,8 @@ class YouTubeClient:
             return "   0:00"
         h, m, s = [int(x) if x else 0 for x in match.groups()]
         if h > 0:
-            return f"{h}:{m:02d}:{s:02d}".rjust(7)
-        return f"{m}:{s:02d}".rjust(7)
+            return f"{h}:{m:02d}:{s:02d}".rjust(DURATION_DISPLAY_WIDTH)
+        return f"{m}:{s:02d}".rjust(DURATION_DISPLAY_WIDTH)
 
     def fetch_videos_from_playlist(self, channel: Channel, published_after: Optional[str], channel_stats: Dict[str, float] = None) -> Tuple[List[Dict], str, Optional[str]]:
         """Fetches videos from a channel's uploads playlist since a given date using adaptive batching."""
@@ -224,7 +231,7 @@ class YouTubeClient:
         if progress_callback: progress_callback(f"Syncing videos since {published_after or 'forever'}...")
         all_raw_videos = []
         
-        with ThreadPoolExecutor(max_workers=20) as executor:
+        with ThreadPoolExecutor(max_workers=SYNC_MAX_WORKERS) as executor:
             futures = [executor.submit(self.fetch_videos_from_playlist, c, published_after, channel_stats) for c in channels]
             completed = 0
             for future in as_completed(futures):

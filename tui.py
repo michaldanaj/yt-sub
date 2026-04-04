@@ -21,6 +21,11 @@ from database import Database
 CONFIG_PATH = "config.json"
 THUMB_CACHE_DIR = ".thumb_cache"
 
+# Fallback terminal cell size used when TIOCGWINSZ returns zeroes.
+# 16px tall × 8px wide matches most common terminal font defaults.
+_CELL_H_PX_FALLBACK = 16
+_CELL_W_PX_FALLBACK = 8
+
 class YouTubeTUI:
     """A dual-pane terminal interface with customizable pastel colors and navigation."""
     def __init__(self, videos: List[Video], db: Database, sync_queue: queue.Queue = None):
@@ -223,7 +228,7 @@ class YouTubeTUI:
                 return ypx // rows, xpx // cols
         except Exception:
             pass
-        return 16, 8
+        return _CELL_H_PX_FALLBACK, _CELL_W_PX_FALLBACK
 
     def _kitty_encode(self, video, cols: int) -> Optional[bytes]:
         """Encodes thumbnail as Kitty terminal graphics protocol bytes (cached).

@@ -19,6 +19,10 @@ from youtube_client import YouTubeClient
 from database import Database
 from tui import start_tui, THUMB_CACHE_DIR
 
+# Number of parallel thumbnail downloads; kept below SYNC_MAX_WORKERS
+# to avoid hammering i.ytimg.com during a large initial sync.
+THUMB_MAX_WORKERS = 10
+
 
 def download_thumbnails(videos, progress_callback=None):
     """Pre-downloads maxresdefault thumbnails for videos that lack a cached file."""
@@ -43,7 +47,7 @@ def download_thumbnails(videos, progress_callback=None):
             except Exception:
                 continue
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=THUMB_MAX_WORKERS) as executor:
         list(executor.map(fetch, to_fetch))
 
 def background_sync(db: Database, client: YouTubeClient, sync_queue: queue.Queue, sync_start_rfc3339: Optional[str]):
@@ -62,13 +66,14 @@ def background_sync(db: Database, client: YouTubeClient, sync_queue: queue.Queue
         # Sync videos since sync_start_rfc3339
         new_videos = client.sync_data(channels, sync_start_rfc3339, channel_stats, progress_callback=progress)
         
+        # Single timestamp for both last_synced on videos and the metadata record
+        now_rfc3339 = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
         if new_videos:
             progress(f"Saving {len(new_videos)} videos to DB...")
-            # Set last_synced timestamp
-            now_rfc3339 = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             for v in new_videos:
                 v.last_synced = now_rfc3339
-                
+
             try:
                 db.save_videos(new_videos)
                 # Push new videos to TUI
@@ -78,9 +83,7 @@ def background_sync(db: Database, client: YouTubeClient, sync_queue: queue.Queue
             except Exception as e:
                 progress(f"DB Error: {str(e)}")
                 raise e
-            
-        # Update metadata with current time
-        now_rfc3339 = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
         db.set_last_update(now_rfc3339)
         
     except Exception as e:
