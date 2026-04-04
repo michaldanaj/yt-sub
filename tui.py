@@ -1041,7 +1041,9 @@ class YouTubeTUI:
 
             # Live search mode
             if self.is_searching:
-                if key in [ord('\n'), curses.KEY_ENTER, 27]:  # Enter or ESC
+                if key in [curses.KEY_UP, curses.KEY_DOWN]:
+                    self._handle_key(key, 1, stdscr)
+                elif key in [ord('\n'), curses.KEY_ENTER, 27]:  # Enter or ESC
                     self.is_searching = False
                 elif key in [curses.KEY_BACKSPACE, 127, 8]:   # Backspace
                     self.filter_query = self.filter_query[:-1]
