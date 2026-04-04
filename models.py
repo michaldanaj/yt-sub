@@ -1,5 +1,8 @@
+import logging
 from dataclasses import dataclass
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Channel:
@@ -40,12 +43,13 @@ class Video:
         """Converts the formatted duration string (H:MM:SS or M:SS) to total seconds."""
         parts = self.duration.strip().split(':')
         try:
-            if len(parts) == 3: # H:MM:SS
+            if len(parts) == 3:  # H:MM:SS
                 return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-            elif len(parts) == 2: # M:SS
+            elif len(parts) == 2:  # M:SS
                 return int(parts[0]) * 60 + int(parts[1])
         except (ValueError, IndexError):
             pass
+        logger.warning("Unrecognised duration format for video %s: %r", self.id, self.duration)
         return 0
 
     @property
