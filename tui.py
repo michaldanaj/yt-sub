@@ -14,7 +14,7 @@ import base64
 import io
 import urllib.request
 from typing import Dict, Any, List, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 from models import Video
 from database import Database
 
@@ -149,7 +149,9 @@ class YouTubeTUI:
 
         for video in filtered_videos:
             try:
-                pub_date = datetime.strptime(video.published_at, "%Y-%m-%dT%H:%M:%SZ").strftime("%Y-%m-%d")
+                # Convert UTC timestamp to local time so date headers match the user's clock
+                utc_dt = datetime.strptime(video.published_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                pub_date = utc_dt.astimezone().strftime("%Y-%m-%d")
             except ValueError:
                 pub_date = video.published_at[:10] if video.published_at else "Unknown"
             if pub_date != current_date:
@@ -544,9 +546,16 @@ class YouTubeTUI:
         y += 1
         
         add_detail("Channel", video.channel_title)
-        add_detail("Published", video.published_at.replace('T', ' ').replace('Z', ''))
+        def fmt_local(utc_str: str) -> str:
+            try:
+                utc_dt = datetime.strptime(utc_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                return utc_dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                return utc_str.replace('T', ' ').replace('Z', '')
+
+        add_detail("Published", fmt_local(video.published_at))
         if video.last_synced:
-            add_detail("Synced", video.last_synced.replace('T', ' ').replace('Z', ''))
+            add_detail("Synced", fmt_local(video.last_synced))
         add_detail("Duration", video.duration.strip())
         add_detail("Views", f"{video.view_count:,}" if video.view_count is not None else "N/A")
         add_detail("Likes", f"{video.like_count:,}" if video.like_count is not None else "N/A")
@@ -859,6 +868,8 @@ class YouTubeTUI:
             while days > 0 and target < len(self.display_items) - 1:
                 target += 1
                 if self.display_items[target]["type"] == "header": days -= 1
+            # target now points at the destination header; scroll it to the top
+            self.top_line = target
             for idx in range(target, len(self.display_items)):
                 if self.display_items[idx]["type"] == "video":
                     self.selected_id = self.display_items[idx]["content"].id; break
@@ -871,6 +882,8 @@ class YouTubeTUI:
             while days > 0 and target > 0:
                 target -= 1
                 if self.display_items[target]["type"] == "header": days -= 1
+            # target now points at the destination header; scroll it to the top
+            self.top_line = target
             for idx in range(target, len(self.display_items)):
                 if self.display_items[idx]["type"] == "video":
                     self.selected_id = self.display_items[idx]["content"].id; break
