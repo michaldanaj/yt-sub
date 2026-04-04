@@ -1,5 +1,5 @@
 import sqlite3
-import json
+import threading
 from typing import List, Optional, Tuple, Dict
 from datetime import datetime
 from models import Channel, Video
@@ -8,9 +8,10 @@ DB_PATH = "youtube_monitor.db"
 
 class Database:
     """Manages SQLite storage for channels and videos."""
-    
+
     def __init__(self):
         self.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        self._lock = threading.Lock()
         self._create_tables()
 
     def _create_tables(self):
@@ -76,48 +77,52 @@ class Database:
 
     def save_channels(self, channels: List[Channel]):
         """Persists a list of channels to the database."""
-        cursor = self.conn.cursor()
-        for c in channels:
-            cursor.execute('''
-                INSERT OR REPLACE INTO channels 
-                (id, title, description, custom_url, published_at, thumbnail_url, view_count, subscriber_count, video_count, uploads_playlist_id, latest_video_date, raw_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (c.id, c.title, c.description, c.custom_url, c.published_at, c.thumbnail_url, c.view_count, c.subscriber_count, c.video_count, c.uploads_playlist_id, c.latest_video_date, c.raw_json))
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.cursor()
+            for c in channels:
+                cursor.execute('''
+                    INSERT OR REPLACE INTO channels
+                    (id, title, description, custom_url, published_at, thumbnail_url, view_count, subscriber_count, video_count, uploads_playlist_id, latest_video_date, raw_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (c.id, c.title, c.description, c.custom_url, c.published_at, c.thumbnail_url, c.view_count, c.subscriber_count, c.video_count, c.uploads_playlist_id, c.latest_video_date, c.raw_json))
+            self.conn.commit()
 
     def save_videos(self, videos: List[Video]):
         """Persists a list of videos to the database, preserving watch_later status and updating metadata."""
-        cursor = self.conn.cursor()
-        for v in videos:
-            cursor.execute('''
-                INSERT INTO videos 
-                (id, channel_id, title, description, published_at, duration, thumbnail_url, view_count, like_count, comment_count, channel_title, watch_later, last_synced, raw_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    title=excluded.title,
-                    description=excluded.description,
-                    published_at=excluded.published_at,
-                    duration=excluded.duration,
-                    thumbnail_url=excluded.thumbnail_url,
-                    view_count=excluded.view_count,
-                    like_count=excluded.like_count,
-                    comment_count=excluded.comment_count,
-                    last_synced=excluded.last_synced,
-                    raw_json=excluded.raw_json
-            ''', (v.id, v.channel_id, v.title, v.description, v.published_at, v.duration, v.thumbnail_url, v.view_count, v.like_count, v.comment_count, v.channel_title, 1 if v.watch_later else 0, v.last_synced, v.raw_json))
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.cursor()
+            for v in videos:
+                cursor.execute('''
+                    INSERT INTO videos
+                    (id, channel_id, title, description, published_at, duration, thumbnail_url, view_count, like_count, comment_count, channel_title, watch_later, last_synced, raw_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        title=excluded.title,
+                        description=excluded.description,
+                        published_at=excluded.published_at,
+                        duration=excluded.duration,
+                        thumbnail_url=excluded.thumbnail_url,
+                        view_count=excluded.view_count,
+                        like_count=excluded.like_count,
+                        comment_count=excluded.comment_count,
+                        last_synced=excluded.last_synced,
+                        raw_json=excluded.raw_json
+                ''', (v.id, v.channel_id, v.title, v.description, v.published_at, v.duration, v.thumbnail_url, v.view_count, v.like_count, v.comment_count, v.channel_title, 1 if v.watch_later else 0, v.last_synced, v.raw_json))
+            self.conn.commit()
 
     def update_watch_later(self, video_id: str, status: bool):
         """Updates the watch later status for a video."""
-        cursor = self.conn.cursor()
-        cursor.execute('UPDATE videos SET watch_later = ? WHERE id = ?', (1 if status else 0, video_id))
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute('UPDATE videos SET watch_later = ? WHERE id = ?', (1 if status else 0, video_id))
+            self.conn.commit()
 
     def reset_watch_later(self):
         """Clears the watch later status for all videos."""
-        cursor = self.conn.cursor()
-        cursor.execute('UPDATE videos SET watch_later = 0')
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute('UPDATE videos SET watch_later = 0')
+            self.conn.commit()
 
     def get_all_videos(self) -> List[Video]:
         """Retrieves all videos from the database, sorted by publication date."""
@@ -157,9 +162,10 @@ class Database:
 
     def set_last_update(self, date_str: str):
         """Updates the last refresh timestamp."""
-        cursor = self.conn.cursor()
-        cursor.execute('INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)', ("last_update", date_str))
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute('INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)', ("last_update", date_str))
+            self.conn.commit()
 
     def get_last_update(self) -> Optional[str]:
         """Retrieves the last refresh timestamp."""
