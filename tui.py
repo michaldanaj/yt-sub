@@ -1043,7 +1043,13 @@ class YouTubeTUI:
             if self.is_searching:
                 if key in [curses.KEY_UP, curses.KEY_DOWN]:
                     self._handle_key(key, 1, stdscr)
-                elif key in [ord('\n'), curses.KEY_ENTER, 27]:  # Enter or ESC
+                elif key == 27:  # ESC — exit search and clear all filters
+                    self.is_searching = False
+                    self.filter_query = ""
+                    self.filter_channel_id = None
+                    self.show_watch_later = False
+                    self.display_items = self._get_display_list()
+                elif key in [ord('\n'), curses.KEY_ENTER]:  # Enter — keep filter
                     self.is_searching = False
                 elif key in [curses.KEY_BACKSPACE, 127, 8]:   # Backspace
                     self.filter_query = self.filter_query[:-1]
