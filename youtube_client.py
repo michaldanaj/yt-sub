@@ -3,7 +3,7 @@ import pickle
 import json
 import threading
 import re
-from typing import List, Dict, Optional, Tuple, Any
+from typing import List, Dict, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
@@ -192,10 +192,7 @@ class YouTubeClient:
                 part="snippet,contentDetails,statistics",
                 id=",".join(batch_ids)
             ).execute()
-            
-            # Map raw items by video ID for quick access to channelTitle
-            raw_map = {item["contentDetails"]["videoId"]: item for item in raw_items}
-            
+
             for item in response.get("items", []):
                 snippet = item.get("snippet", {})
                 stats = item.get("statistics", {})
