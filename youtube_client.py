@@ -160,6 +160,7 @@ class YouTubeClient:
                 batch_finished = False
                 for item in items:
                     video_pub_at = item["contentDetails"].get("videoPublishedAt") or item["snippet"]["publishedAt"]
+                    # ISO 8601 strings in YYYY-MM-DDTHH:MM:SSZ format compare correctly as plain strings
                     if published_after and video_pub_at < published_after:
                         batch_finished = True
                         break
