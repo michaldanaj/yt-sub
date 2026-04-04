@@ -642,12 +642,14 @@ class YouTubeTUI:
                 new videos arrive.
 
         Returns:
-            ``True`` if any message was processed and the screen should be
-            redrawn, ``False`` otherwise.
+            ``"full"`` if the video list changed and a full redraw
+            (including thumbnail) is needed, ``"status"`` if only the
+            status bar text changed, or ``None`` if there is nothing to
+            redraw.
         """
         if not self.sync_queue:
-            return False
-        needs_redraw = False
+            return None
+        redraw_level = None  # None < "status" < "full"
         try:
             while True:
                 msg = self.sync_queue.get_nowait()
@@ -657,10 +659,12 @@ class YouTubeTUI:
                 if mtype == "done":
                     self.is_syncing = False
                     self.sync_progress = "Complete"
-                    needs_redraw = True
+                    if redraw_level is None:
+                        redraw_level = "status"
                 elif mtype == "progress":
                     self.sync_progress = msg.get("message", "")
-                    needs_redraw = True
+                    if redraw_level is None:
+                        redraw_level = "status"
                 elif mtype == "videos":
                     new_batch = msg.get("data", [])
                     if new_batch:
@@ -683,10 +687,10 @@ class YouTubeTUI:
 
                         self.display_items = self._get_display_list()
                         self._show_message(stdscr, f"Sync complete: {len(new_batch)} items updated/added", 2)
-                        needs_redraw = True
+                        redraw_level = "full"
         except queue.Empty:
             pass
-        return needs_redraw
+        return redraw_level
 
     def _draw_status_bar(self, stdscr: "curses.window", sh: int, sw: int) -> None:
         """Renders the bottom status bar with key hints and active filter state.
@@ -972,8 +976,15 @@ class YouTubeTUI:
                 if stdscr.getch() == ord('q'): break
                 continue
 
-            needs_redraw = force_redraw or self._poll_sync_queue(stdscr)
+            sync_redraw = self._poll_sync_queue(stdscr)
+            needs_redraw = force_redraw or sync_redraw == "full"
             force_redraw = False
+
+            # Status-only sync updates: just repaint the status bar, skip thumbnail
+            if not needs_redraw and sync_redraw == "status" and left_win is not None:
+                self._draw_status_bar(stdscr, sh, sw)
+                stdscr.noutrefresh()
+                curses.doupdate()
 
             if needs_redraw or left_win is None:
                 split_ratio = self.config["ui"].get("pane_split_ratio", 0.5)
