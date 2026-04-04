@@ -86,7 +86,9 @@ Filmy pogrupowane nagłówkami dat w formacie `--- YYYY-MM-DD ---`.
 - Po wciśnięciu `/` interfejs wchodzi w tryb wyszukiwania.
 - Wpisywany tekst filtruje listę w czasie rzeczywistym (filtrowanie po tytule i nazwie kanału).
 - Pasek statusu wyświetla `SEARCH: <zapytanie>_`.
-- `Enter` lub `ESC` kończy tryb wyszukiwania (filtr pozostaje aktywny po `Enter`, czyszczony przez `ESC` lub `ESC` z poziomu normalnego trybu).
+- Strzałki góra/dół nawigują po liście filmów bez opuszczania trybu wyszukiwania.
+- `Enter` kończy tryb wyszukiwania (filtr pozostaje aktywny).
+- `ESC` kończy tryb wyszukiwania i od razu czyści wszystkie filtry (query, kanał, Watch Later), wracając do pełnej listy.
 
 **Numeracja linii:**
 Względna numeracja (jak w Vim) — wyświetlana z lewej strony listy. Aktualnie zaznaczona linia pokazuje swój bezwzględny numer (1-based), pozostałe linie pokazują odległość od zaznaczenia.
