@@ -1,23 +1,30 @@
 import sqlite3
 import threading
-from typing import List, Optional, Tuple, Dict
+from typing import Dict, List, Optional
 from datetime import datetime
 from models import Channel, Video
 
 DB_PATH = "youtube_monitor.db"
 
-class Database:
-    """Manages SQLite storage for channels and videos."""
 
-    def __init__(self):
+class Database:
+    """SQLite-backed persistence layer for channels and videos.
+
+    All write operations are serialised with an internal ``threading.Lock``
+    so that the background sync thread and the TUI main thread can share a
+    single connection safely.
+    """
+
+    def __init__(self) -> None:
+        """Opens (or creates) the database and initialises the schema."""
         self.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         self._lock = threading.Lock()
         self._create_tables()
 
-    def _create_tables(self):
-        """Initializes the database schema."""
+    def _create_tables(self) -> None:
+        """Creates tables and migrates missing columns on existing databases."""
         cursor = self.conn.cursor()
-        
+
         # Channels table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS channels (
@@ -35,7 +42,7 @@ class Database:
                 raw_json TEXT
             )
         ''')
-        
+
         # Videos table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS videos (
@@ -56,7 +63,7 @@ class Database:
                 FOREIGN KEY (channel_id) REFERENCES channels(id)
             )
         ''')
-        
+
         # Check if columns exist (for existing databases)
         cursor.execute("PRAGMA table_info(videos)")
         columns = [col[1] for col in cursor.fetchall()]
@@ -72,11 +79,16 @@ class Database:
                 value TEXT
             )
         ''')
-        
+
         self.conn.commit()
 
-    def save_channels(self, channels: List[Channel]):
-        """Persists a list of channels to the database."""
+    def save_channels(self, channels: List[Channel]) -> None:
+        """Upserts a list of channels into the database.
+
+        Args:
+            channels: Channel objects to persist.  Existing rows are replaced
+                in full (``INSERT OR REPLACE``).
+        """
         with self._lock:
             cursor = self.conn.cursor()
             for c in channels:
@@ -87,8 +99,17 @@ class Database:
                 ''', (c.id, c.title, c.description, c.custom_url, c.published_at, c.thumbnail_url, c.view_count, c.subscriber_count, c.video_count, c.uploads_playlist_id, c.latest_video_date, c.raw_json))
             self.conn.commit()
 
-    def save_videos(self, videos: List[Video]):
-        """Persists a list of videos to the database, preserving watch_later status and updating metadata."""
+    def save_videos(self, videos: List[Video]) -> None:
+        """Upserts a list of videos into the database.
+
+        Metadata fields (title, duration, counts, etc.) are always updated on
+        conflict.  The ``watch_later`` flag is intentionally excluded from the
+        ``ON CONFLICT`` update so that user-set flags are never overwritten by
+        a sync.
+
+        Args:
+            videos: Video objects to persist.
+        """
         with self._lock:
             cursor = self.conn.cursor()
             for v in videos:
@@ -110,30 +131,39 @@ class Database:
                 ''', (v.id, v.channel_id, v.title, v.description, v.published_at, v.duration, v.thumbnail_url, v.view_count, v.like_count, v.comment_count, v.channel_title, 1 if v.watch_later else 0, v.last_synced, v.raw_json))
             self.conn.commit()
 
-    def update_watch_later(self, video_id: str, status: bool):
-        """Updates the watch later status for a video."""
+    def update_watch_later(self, video_id: str, status: bool) -> None:
+        """Sets the watch-later flag for a single video.
+
+        Args:
+            video_id: YouTube video ID to update.
+            status: ``True`` to mark for later viewing, ``False`` to clear.
+        """
         with self._lock:
             cursor = self.conn.cursor()
             cursor.execute('UPDATE videos SET watch_later = ? WHERE id = ?', (1 if status else 0, video_id))
             self.conn.commit()
 
-    def reset_watch_later(self):
-        """Clears the watch later status for all videos."""
+    def reset_watch_later(self) -> None:
+        """Clears the watch-later flag for every video in the database."""
         with self._lock:
             cursor = self.conn.cursor()
             cursor.execute('UPDATE videos SET watch_later = 0')
             self.conn.commit()
 
     def get_all_videos(self) -> List[Video]:
-        """Retrieves all videos from the database, sorted by publication date."""
+        """Returns all videos ordered by publication date descending.
+
+        Returns:
+            List of :class:`Video` objects, newest first.
+        """
         cursor = self.conn.cursor()
         cursor.execute('''
-            SELECT id, channel_id, title, description, published_at, duration, thumbnail_url, view_count, like_count, comment_count, channel_title, watch_later, last_synced, raw_json 
-            FROM videos 
+            SELECT id, channel_id, title, description, published_at, duration, thumbnail_url, view_count, like_count, comment_count, channel_title, watch_later, last_synced, raw_json
+            FROM videos
             ORDER BY published_at DESC
         ''')
         rows = cursor.fetchall()
-        
+
         videos = []
         for row in rows:
             videos.append(Video(
@@ -145,11 +175,15 @@ class Database:
         return videos
 
     def get_all_channels(self) -> List[Channel]:
-        """Retrieves all channels from the database."""
+        """Returns all channels ordered alphabetically by title.
+
+        Returns:
+            List of :class:`Channel` objects.
+        """
         cursor = self.conn.cursor()
         cursor.execute('SELECT * FROM channels ORDER BY title ASC')
         rows = cursor.fetchall()
-        
+
         channels = []
         for row in rows:
             channels.append(Channel(
@@ -160,36 +194,52 @@ class Database:
             ))
         return channels
 
-    def set_last_update(self, date_str: str):
-        """Updates the last refresh timestamp."""
+    def set_last_update(self, date_str: str) -> None:
+        """Persists the last-sync timestamp in the metadata table.
+
+        Args:
+            date_str: ISO 8601 timestamp string (``YYYY-MM-DDTHH:MM:SSZ``).
+        """
         with self._lock:
             cursor = self.conn.cursor()
             cursor.execute('INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)', ("last_update", date_str))
             self.conn.commit()
 
     def get_last_update(self) -> Optional[str]:
-        """Retrieves the last refresh timestamp."""
+        """Retrieves the last-sync timestamp from the metadata table.
+
+        Returns:
+            ISO 8601 timestamp string, or ``None`` if no sync has run yet.
+        """
         cursor = self.conn.cursor()
         cursor.execute('SELECT value FROM metadata WHERE key = ?', ("last_update",))
         row = cursor.fetchone()
         return row[0] if row else None
 
     def get_channel_stats(self) -> Dict[str, float]:
-        """Calculates average daily videos for each channel over the last 3 months."""
+        """Calculates the average number of videos published per day per channel.
+
+        Uses only the last 90 days of data to keep the estimate relevant for
+        adaptive batch sizing during sync.
+
+        Returns:
+            Mapping of ``channel_id`` to average daily video count.  Channels
+            with no videos in the window are absent from the dict.
+        """
         cursor = self.conn.cursor()
         three_months_ago = (datetime.now().timestamp() - (90 * 24 * 3600))
         three_months_ago_str = datetime.fromtimestamp(three_months_ago).strftime("%Y-%m-%dT%H:%M:%SZ")
-        
+
         cursor.execute('''
-            SELECT channel_id, COUNT(*) 
-            FROM videos 
-            WHERE published_at > ? 
+            SELECT channel_id, COUNT(*)
+            FROM videos
+            WHERE published_at > ?
             GROUP BY channel_id
         ''', (three_months_ago_str,))
-        
+
         counts = {row[0]: row[1] / 90.0 for row in cursor.fetchall()}
         return counts
 
-    def close(self):
-        """Closes the database connection."""
+    def close(self) -> None:
+        """Closes the underlying SQLite connection."""
         self.conn.close()

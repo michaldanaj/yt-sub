@@ -13,7 +13,7 @@ import termios
 import base64
 import io
 import urllib.request
-from typing import List, Optional, Dict, Any
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 from models import Video
 from database import Database
@@ -27,8 +27,28 @@ _CELL_H_PX_FALLBACK = 16
 _CELL_W_PX_FALLBACK = 8
 
 class YouTubeTUI:
-    """A dual-pane terminal interface with customizable pastel colors and navigation."""
-    def __init__(self, videos: List[Video], db: Database, sync_queue: queue.Queue = None):
+    """Dual-pane terminal UI for browsing YouTube subscriptions.
+
+    Left pane: date-grouped video list with vim-style navigation.
+    Right pane: details for the selected video plus an inline thumbnail
+    rendered via the Kitty terminal graphics protocol.
+
+    Attributes:
+        videos: Master list of all known videos, sorted newest-first.
+        selected_id: YouTube ID of the currently highlighted video.
+        display_items: Filtered and grouped items currently visible in the
+            left pane; each entry is ``{"type": "header"|"video", "content": ...}``.
+    """
+
+    def __init__(self, videos: List[Video], db: Database, sync_queue: Optional[queue.Queue] = None) -> None:
+        """Initialises state from the pre-loaded video list.
+
+        Args:
+            videos: Videos loaded from the database before the TUI starts.
+            db: Open database connection used to persist watch-later changes.
+            sync_queue: Queue from which background sync messages are read.
+                Pass ``None`` to start without a sync in progress.
+        """
         self.db = db
         self.videos = videos
         self.selected_id: Optional[str] = videos[0].id if videos else None
@@ -48,7 +68,12 @@ class YouTubeTUI:
         self._thumb_kitty_cache: Dict[tuple, Any] = {}  # (video_id, cols, rows) -> bytes or None
 
     def _load_config(self) -> Dict[str, Any]:
-        """Loads TUI configuration from file."""
+        """Loads TUI configuration from :data:`CONFIG_PATH`.
+
+        Returns:
+            Parsed config dict.  Falls back to built-in defaults when the file
+            is missing or contains invalid JSON.
+        """
         if os.path.exists(CONFIG_PATH):
             try:
                 with open(CONFIG_PATH, "r") as f:
@@ -60,8 +85,8 @@ class YouTubeTUI:
             "ui": {"pane_split_ratio": 0.5, "page_scroll_ratio": 0.8, "shorts_threshold_seconds": 90}
         }
 
-    def _init_colors(self):
-        """Initializes curses color pairs based on config."""
+    def _init_colors(self) -> None:
+        """Initialises curses color pairs from the ``colors`` section of config."""
         curses.start_color()
         curses.use_default_colors()
         
@@ -87,8 +112,18 @@ class YouTubeTUI:
         curses.init_pair(14, c["channel"], bg)
         curses.init_pair(15, c["title"], bg)
 
-    def _get_display_list(self) -> List:
-        """Processes videos into a list of display items with headers and filters."""
+    def _get_display_list(self) -> List[Dict[str, Any]]:
+        """Builds the filtered, date-grouped list of items for the left pane.
+
+        Applies the active filters (shorts threshold, channel filter, search
+        query, watch-later mode) and inserts date header entries between groups
+        of videos published on different days.
+
+        Returns:
+            List of dicts, each with a ``"type"`` key (``"header"`` or
+            ``"video"``) and a ``"content"`` key (date string or
+            :class:`~models.Video`).
+        """
         items = []
         current_date = None
         threshold = self.config["ui"].get("shorts_threshold_seconds", 90)
@@ -124,7 +159,13 @@ class YouTubeTUI:
         return items
 
     def _get_selected_video(self) -> Optional[Video]:
-        """Returns the currently selected Video object, or None."""
+        """Looks up the currently selected video by ID.
+
+        Returns:
+            The :class:`~models.Video` whose ``id`` matches
+            :attr:`selected_id`, or ``None`` if the list is empty or the ID
+            is no longer present.
+        """
         if not self.selected_id:
             return None
         for v in self.videos:
@@ -133,14 +174,30 @@ class YouTubeTUI:
         return None
 
     def _find_current_display_index(self) -> int:
-        """Returns the index of the selected video in display_items, or -1 if not found."""
+        """Finds the position of the selected video in :attr:`display_items`.
+
+        Returns:
+            Zero-based index of the selected video entry, or ``-1`` if it is
+            not present (e.g. filtered out).
+        """
         for idx, item in enumerate(self.display_items):
             if item["type"] == "video" and item["content"].id == self.selected_id:
                 return idx
         return -1
 
-    def _safe_addstr(self, win, y, x, text, attr=curses.A_NORMAL):
-        """Safely adds a string to a window, handling boundaries."""
+    def _safe_addstr(self, win: "curses.window", y: int, x: int, text: str, attr: int = curses.A_NORMAL) -> None:
+        """Writes a string to a curses window, clipping to window boundaries.
+
+        Silently ignores writes that fall outside the window or that curses
+        raises an error for (e.g. writing to the last cell of the last line).
+
+        Args:
+            win: Target curses window.
+            y: Row coordinate (0-based).
+            x: Column coordinate (0-based).
+            text: String to write.
+            attr: Curses attribute bitmask (color pair, bold, etc.).
+        """
         try:
             h, w = win.getmaxyx()
             if y < 0 or y >= h or x < 0 or x >= w:
@@ -150,8 +207,15 @@ class YouTubeTUI:
         except curses.error:
             pass
 
-    def _play_video(self, video: Video):
-        """Plays the selected video in mpv."""
+    def _play_video(self, video: Video) -> None:
+        """Launches mpv for the given video and blocks until playback ends.
+
+        Saves and restores the terminal shell mode so that curses can redraw
+        correctly after mpv exits.
+
+        Args:
+            video: Video to play.
+        """
         curses.def_shell_mode()
         subprocess.run(
             ["mpv", "--autofit-larger=90%x90%", video.url],
@@ -160,8 +224,15 @@ class YouTubeTUI:
         )
         curses.reset_shell_mode()
 
-    def _copy_to_clipboard(self, text: str):
-        """Copies text to clipboard using xclip or wl-copy."""
+    def _copy_to_clipboard(self, text: str) -> None:
+        """Copies text to the system clipboard using xclip or wl-copy.
+
+        Tries ``xclip`` first (X11), then ``wl-copy`` (Wayland).  Silently
+        does nothing if neither tool is installed.
+
+        Args:
+            text: String to place on the clipboard.
+        """
         try:
             process = subprocess.Popen(['xclip', '-selection', 'clipboard'], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
             process.communicate(input=text.encode('utf-8'))
@@ -174,15 +245,26 @@ class YouTubeTUI:
             if process.returncode == 0: return
         except FileNotFoundError: pass
 
-    def _open_in_browser(self, video: Video):
-        """Opens the selected video in the default browser."""
+    def _open_in_browser(self, video: Video) -> None:
+        """Opens the video URL in the system default browser via ``xdg-open``.
+
+        Args:
+            video: Video whose URL should be opened.
+        """
         try:
             subprocess.run(["xdg-open", video.url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except:
             pass
 
-    def _set_shorts_threshold(self, stdscr):
-        """Prompt to set a new threshold for Shorts in seconds."""
+    def _set_shorts_threshold(self, stdscr: "curses.window") -> None:
+        """Prompts the user to enter a new Shorts duration threshold.
+
+        Reads an integer from an inline input field in the status bar, updates
+        :attr:`config` and persists the new value to :data:`CONFIG_PATH`.
+
+        Args:
+            stdscr: Root curses window used for the prompt.
+        """
         sh, sw = stdscr.getmaxyx()
         prompt = "Shorts threshold (seconds): "
         
@@ -205,8 +287,17 @@ class YouTubeTUI:
         curses.noecho()
         curses.curs_set(0)
 
-    def _show_message(self, stdscr, message, seconds=1):
-        """Displays a message in the center of the screen for a given duration."""
+    def _show_message(self, stdscr: "curses.window", message: str, seconds: float = 1) -> None:
+        """Displays a centred message box for the given duration.
+
+        Uses ``noutrefresh`` / ``doupdate`` so the box is composited onto
+        the existing screen without a full redraw.
+
+        Args:
+            stdscr: Root curses window.
+            message: Text to display inside the box.
+            seconds: How long to show the message before returning.
+        """
         sh, sw = stdscr.getmaxyx()
         h, w = 3, len(message) + 4
         y, x = (sh - h) // 2, (sw - w) // 2
@@ -218,8 +309,17 @@ class YouTubeTUI:
         curses.doupdate()
         curses.napms(int(seconds * 1000))
 
-    def _get_cell_px(self) -> tuple:
-        """Returns (cell_h_px, cell_w_px) from TIOCGWINSZ, falling back to 16x8."""
+    def _get_cell_px(self) -> Tuple[int, int]:
+        """Queries the terminal for the pixel size of a single character cell.
+
+        Uses the ``TIOCGWINSZ`` ioctl to read pixel dimensions reported by the
+        terminal emulator.
+
+        Returns:
+            ``(cell_height_px, cell_width_px)``.  Falls back to
+            ``(_CELL_H_PX_FALLBACK, _CELL_W_PX_FALLBACK)`` when the ioctl
+            fails or returns zeroes.
+        """
         try:
             buf = struct.pack('HHHH', 0, 0, 0, 0)
             res = fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, buf)
@@ -230,13 +330,26 @@ class YouTubeTUI:
             pass
         return _CELL_H_PX_FALLBACK, _CELL_W_PX_FALLBACK
 
-    def _kitty_encode(self, video, cols: int) -> Optional[bytes]:
-        """Encodes thumbnail as Kitty terminal graphics protocol bytes (cached).
+    def _kitty_encode(self, video: Video, cols: int) -> Optional[bytes]:
+        """Encodes a video thumbnail as Kitty terminal graphics protocol bytes.
 
-        Resizes the image to cols*8 x cols*8*9/16 pixels (assuming ~8px cell
-        width) and sends it without c=/r= so the terminal displays it at its
-        natural pixel size — no stretching, correct proportions.
-        Uses maxresdefault.jpg (1280x720) for quality.
+        Downloads ``maxresdefault.jpg`` (1280×720) if not already cached,
+        resizes it to ``cols * 8`` px wide (preserving 16:9 aspect ratio) and
+        encodes it as a sequence of APC escape sequences suitable for the Kitty
+        graphics protocol.  Results are cached in :attr:`_thumb_kitty_cache`
+        keyed by ``(video_id, cols)``.
+
+        The image is transmitted without explicit ``c=`` / ``r=`` cell-size
+        parameters so the terminal renders it at natural pixel density without
+        stretching.
+
+        Args:
+            video: Video whose thumbnail should be encoded.
+            cols: Target width in terminal columns.
+
+        Returns:
+            Raw bytes containing the Kitty APC sequences, or ``None`` if the
+            thumbnail cannot be loaded or PIL is not available.
         """
         cache_key = (video.id, cols)
         if cache_key in self._thumb_kitty_cache:
@@ -297,8 +410,21 @@ class YouTubeTUI:
             self._thumb_kitty_cache[cache_key] = None
             return None
 
-    def _draw_thumbnail_kitty(self, abs_row: int, abs_col: int, cols: int, rows: int, video):
-        """Outputs thumbnail at the given absolute terminal position via Kitty protocol."""
+    def _draw_thumbnail_kitty(self, abs_row: int, abs_col: int, cols: int, rows: int, video: Video) -> None:
+        """Renders the thumbnail at an absolute terminal position using the Kitty protocol.
+
+        First deletes any existing Kitty image (``a=d,d=A``), then moves the
+        cursor and sends the encoded image bytes.  The cursor position is saved
+        and restored with ``\\033[s`` / ``\\033[u`` so ncurses internal state
+        stays in sync.
+
+        Args:
+            abs_row: Terminal row (0-based) for the top-left corner.
+            abs_col: Terminal column (0-based) for the top-left corner.
+            cols: Width in columns used when encoding the image.
+            rows: Height in rows (informational; the terminal auto-wraps).
+            video: Video whose thumbnail should be rendered.
+        """
         delete = b'\033_Ga=d,d=A\033\\'
         data = self._kitty_encode(video, cols)
         if not data:
@@ -311,8 +437,18 @@ class YouTubeTUI:
         sys.stdout.buffer.write(b'\033[s' + delete + cursor_pos + data + b'\033[u')
         sys.stdout.buffer.flush()
 
-    def _draw_left_pane(self, win, width, height):
-        """Renders the video list pane."""
+    def _draw_left_pane(self, win: "curses.window", width: int, height: int) -> None:
+        """Renders the video list in the left pane.
+
+        Draws relative line numbers (vim-style), date headers and per-video
+        rows with duration, channel name and title.  Scrolls automatically to
+        keep the selected item visible.
+
+        Args:
+            win: Curses window for the left pane.
+            width: Usable column count.
+            height: Usable row count.
+        """
         win.erase()
         if not self.display_items:
             self._safe_addstr(win, 0, 0, "No videos match filters.", curses.A_DIM)
@@ -371,8 +507,19 @@ class YouTubeTUI:
                     self._safe_addstr(win, i, x, " " * (width - x), p(5))
                 self._safe_addstr(win, i, x, title_str, p(5))
                 
-    def _draw_right_pane(self, win, width, height, reserved_rows=0):
-        """Renders the video details pane, leaving reserved_rows at the bottom for the thumbnail."""
+    def _draw_right_pane(self, win: "curses.window", width: int, height: int, reserved_rows: int = 0) -> None:
+        """Renders the video detail view in the right pane.
+
+        Shows the title, channel, publication date, duration, view/like counts
+        and the full description.  The bottom ``reserved_rows`` rows are left
+        blank for the Kitty thumbnail.
+
+        Args:
+            win: Curses window for the right pane.
+            width: Usable column count.
+            height: Total row count of the pane.
+            reserved_rows: Number of rows to leave blank at the bottom.
+        """
         win.erase()
         video = self._get_selected_video()
         if video is None or width < 5:
@@ -422,7 +569,15 @@ class YouTubeTUI:
                         self._safe_addstr(win, y, 0, w_line, curses.color_pair(8))
                         y += 1
 
-    def _draw_help_overlay(self, stdscr):
+    def _draw_help_overlay(self, stdscr: "curses.window") -> None:
+        """Renders a centred help overlay listing all keyboard shortcuts.
+
+        Blocks until the user presses any key, then sets :attr:`show_help` to
+        ``False``.
+
+        Args:
+            stdscr: Root curses window.
+        """
         """Renders a help overlay in the center of the screen."""
         sh, sw = stdscr.getmaxyx()
         h, w = 19, 60
@@ -463,8 +618,24 @@ class YouTubeTUI:
         win.getch()
         self.show_help = False
 
-    def _poll_sync_queue(self, stdscr) -> bool:
-        """Drains the sync queue and applies updates. Returns True if a redraw is needed."""
+    def _poll_sync_queue(self, stdscr: "curses.window") -> bool:
+        """Drains all pending messages from the sync queue and applies them.
+
+        Handles three message types posted by :func:`~main.background_sync`:
+
+        - ``"progress"``: updates :attr:`sync_progress`.
+        - ``"videos"``: merges new videos into :attr:`videos`, preserving
+          watch-later flags, and re-sorts by publication date.
+        - ``"done"``: sets :attr:`is_syncing` to ``False``.
+
+        Args:
+            stdscr: Root curses window; passed to :meth:`_show_message` when
+                new videos arrive.
+
+        Returns:
+            ``True`` if any message was processed and the screen should be
+            redrawn, ``False`` otherwise.
+        """
         if not self.sync_queue:
             return False
         needs_redraw = False
@@ -508,8 +679,19 @@ class YouTubeTUI:
             pass
         return needs_redraw
 
-    def _draw_status_bar(self, stdscr, sh: int, sw: int):
-        """Renders the bottom status bar."""
+    def _draw_status_bar(self, stdscr: "curses.window", sh: int, sw: int) -> None:
+        """Renders the bottom status bar with key hints and active filter state.
+
+        In search mode the bar shows the live query instead of the normal
+        shortcuts.  Segments are separated by ``|`` drawn in a contrasting
+        color.  The bar is clipped automatically when the terminal is too
+        narrow to fit all segments.
+
+        Args:
+            stdscr: Root curses window.
+            sh: Terminal height in rows.
+            sw: Terminal width in columns.
+        """
         wl_count = sum(1 for v in self.videos if v.watch_later)
         threshold = self.config['ui'].get('shorts_threshold_seconds', 90)
         wl_label = "IST" if self.show_watch_later else "ist"
@@ -566,8 +748,25 @@ class YouTubeTUI:
             sep()
             seg(f" :{self.input_buffer}")
 
-    def _handle_key(self, key: int, count: int, stdscr) -> bool:
-        """Handles a single keypress. Returns True if the application should quit."""
+    def _handle_key(self, key: int, count: int, stdscr: "curses.window") -> bool:
+        """Dispatches a single keypress to the appropriate action.
+
+        Supports vim-style navigation (``j``/``k``/``J``/``K``/``gg``/``G``/
+        ``zz``/``Ctrl-f``/``Ctrl-b``), playback (``Enter``), clipboard
+        (``y``), browser (``o``), watch-later management (``l``/``L``/``d``),
+        filter toggles (``s``/``S``/``b``/``/``/``ESC``) and quit (``q``).
+
+        Numeric prefixes accumulated in :attr:`input_buffer` are consumed as
+        *count* before this method is called.
+
+        Args:
+            key: Curses key code as returned by ``getch()``.
+            count: Numeric prefix (1 when no prefix was typed).
+            stdscr: Root curses window; passed to action helpers that need it.
+
+        Returns:
+            ``True`` if the application should exit, ``False`` otherwise.
+        """
         if key == ord('q'):
             return True
         elif key == 27:  # ESC
@@ -726,7 +925,21 @@ class YouTubeTUI:
             self.input_buffer = ""
         return False
 
-    def run(self, stdscr):
+    def run(self, stdscr: "curses.window") -> None:
+        """Main event loop — called by :func:`curses.wrapper`.
+
+        Initialises colors, then repeatedly:
+
+        1. Polls the sync queue via :meth:`_poll_sync_queue`.
+        2. Redraws both panes, the status bar and the Kitty thumbnail when
+           needed.
+        3. Reads a keypress and dispatches it via :meth:`_handle_key`.
+
+        The loop exits when :meth:`_handle_key` returns ``True`` (``q`` key).
+
+        Args:
+            stdscr: Root curses window provided by :func:`curses.wrapper`.
+        """
         self._init_colors()
         curses.curs_set(0)
         stdscr.clear()
@@ -837,7 +1050,18 @@ class YouTubeTUI:
             if self._handle_key(key, count, stdscr):
                 break
 
-def start_tui(videos: List[Video], db: Database, sync_queue: queue.Queue = None):
+def start_tui(videos: List[Video], db: Database, sync_queue: Optional[queue.Queue] = None) -> None:
+    """Launches the TUI via :func:`curses.wrapper`.
+
+    Sets ``TERM`` and ``ESCDELAY`` environment variables if not already
+    present, then hands control to :meth:`YouTubeTUI.run`.
+
+    Args:
+        videos: Pre-loaded videos to display immediately on startup.
+        db: Open database connection passed through to the TUI.
+        sync_queue: Queue for background sync messages; ``None`` if no sync
+            is running.
+    """
     if not videos: videos = []
     os.environ.setdefault('TERM', 'xterm-256color')
     os.environ.setdefault('ESCDELAY', '25')
