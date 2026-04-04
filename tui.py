@@ -115,6 +115,13 @@ class YouTubeTUI:
             items.append({"type": "video", "content": video, "original_index": orig_idx})
         return items
 
+    def _find_current_display_index(self) -> int:
+        """Returns the index of the selected video in display_items, or -1 if not found."""
+        for idx, item in enumerate(self.display_items):
+            if item["type"] == "video" and item["original_index"] == self.selected_index:
+                return idx
+        return -1
+
     def _safe_addstr(self, win, y, x, text, attr=curses.A_NORMAL):
         """Safely adds a string to a window, handling boundaries."""
         try:
@@ -294,14 +301,9 @@ class YouTubeTUI:
             self._safe_addstr(win, 0, 0, "No videos match filters.", curses.A_DIM)
             return
 
-        current_display_idx = 0
-        found = False
-        for idx, item in enumerate(self.display_items):
-            if item["type"] == "video" and item["original_index"] == self.selected_index:
-                current_display_idx = idx
-                found = True
-                break
-        
+        current_display_idx = self._find_current_display_index()
+        found = current_display_idx != -1
+
         if not found and self.display_items:
             for idx, item in enumerate(self.display_items):
                 if item["type"] == "video":
@@ -732,10 +734,7 @@ class YouTubeTUI:
                 self.display_items = self._get_display_list()
                 self.input_buffer = ""
             elif key in [curses.KEY_UP, ord('k')]:
-                curr = -1
-                for idx, item in enumerate(self.display_items):
-                    if item["type"] == "video" and item["original_index"] == self.selected_index:
-                        curr = idx; break
+                curr = self._find_current_display_index()
                 moves = count
                 target = curr
                 while moves > 0 and target > 0:
@@ -745,10 +744,7 @@ class YouTubeTUI:
                         moves -= 1
                 self.input_buffer = ""
             elif key in [curses.KEY_DOWN, ord('j')]:
-                curr = -1
-                for idx, item in enumerate(self.display_items):
-                    if item["type"] == "video" and item["original_index"] == self.selected_index:
-                        curr = idx; break
+                curr = self._find_current_display_index()
                 moves = count
                 target = curr
                 while moves > 0 and target < len(self.display_items) - 1:
@@ -758,10 +754,7 @@ class YouTubeTUI:
                         moves -= 1
                 self.input_buffer = ""
             elif key == ord('J'):
-                curr = -1
-                for idx, item in enumerate(self.display_items):
-                    if item["type"] == "video" and item["original_index"] == self.selected_index:
-                        curr = idx; break
+                curr = self._find_current_display_index()
                 days = count
                 target = curr
                 while days > 0 and target < len(self.display_items) - 1:
@@ -772,10 +765,7 @@ class YouTubeTUI:
                         self.selected_index = self.display_items[idx]["original_index"]; break
                 self.input_buffer = ""
             elif key == ord('K'):
-                curr = -1
-                for idx, item in enumerate(self.display_items):
-                    if item["type"] == "video" and item["original_index"] == self.selected_index:
-                        curr = idx; break
+                curr = self._find_current_display_index()
                 days = count
                 target = curr
                 if target > 0 and self.display_items[target - 1]["type"] == "header": target -= 1
@@ -810,28 +800,19 @@ class YouTubeTUI:
                 else: self.input_buffer = "g"
             elif key == ord('z'):
                 if self.input_buffer == "z":
-                    curr = -1
-                    for idx, item in enumerate(self.display_items):
-                        if item["type"] == "video" and item["original_index"] == self.selected_index:
-                            curr = idx; break
+                    curr = self._find_current_display_index()
                     if curr != -1: self.top_line = max(0, curr - (sh - 1) // 2)
                     self.input_buffer = ""
                 else: self.input_buffer = "z"
             elif key in [curses.KEY_PPAGE, 2]:
-                curr = -1
-                for idx, item in enumerate(self.display_items):
-                    if item["type"] == "video" and item["original_index"] == self.selected_index:
-                        curr = idx; break
+                curr = self._find_current_display_index()
                 target = max(0, curr - max(1, sh - 2))
                 for idx in range(target, len(self.display_items)):
                     if self.display_items[idx]["type"] == "video":
                         self.selected_index = self.display_items[idx]["original_index"]; break
                 self.input_buffer = ""
             elif key in [curses.KEY_NPAGE, 6]:
-                curr = -1
-                for idx, item in enumerate(self.display_items):
-                    if item["type"] == "video" and item["original_index"] == self.selected_index:
-                        curr = idx; break
+                curr = self._find_current_display_index()
                 target = min(len(self.display_items) - 1, curr + max(1, sh - 2))
                 for idx in range(target, -1, -1):
                     if self.display_items[idx]["type"] == "video":

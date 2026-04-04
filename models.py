@@ -1,6 +1,5 @@
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
-import json
+from dataclasses import dataclass
+from typing import Optional
 
 @dataclass
 class Channel:
@@ -17,9 +16,6 @@ class Channel:
     uploads_playlist_id: Optional[str] = None
     latest_video_date: Optional[str] = None
     raw_json: str = "{}"
-
-    def to_dict(self) -> Dict[str, Any]:
-        return json.loads(self.raw_json)
 
 @dataclass
 class Video:
@@ -56,5 +52,3 @@ class Video:
     def url(self) -> str:
         return f"https://www.youtube.com/watch?v={self.id}"
 
-    def to_dict(self) -> Dict[str, Any]:
-        return json.loads(self.raw_json)
