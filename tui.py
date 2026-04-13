@@ -332,28 +332,32 @@ class YouTubeTUI:
             pass
         return _CELL_H_PX_FALLBACK, _CELL_W_PX_FALLBACK
 
-    def _kitty_encode(self, video: Video, cols: int) -> Optional[bytes]:
+    def _kitty_encode(self, video: Video, cols: int, rows: int,
+                      cell_w: int, cell_h: int) -> Optional[bytes]:
         """Encodes a video thumbnail as Kitty terminal graphics protocol bytes.
 
         Downloads ``maxresdefault.jpg`` (1280×720) if not already cached,
-        resizes it to ``cols * 8`` px wide (preserving 16:9 aspect ratio) and
+        resizes it to ``cols * cell_w`` px wide (preserving aspect ratio) and
         encodes it as a sequence of APC escape sequences suitable for the Kitty
         graphics protocol.  Results are cached in :attr:`_thumb_kitty_cache`
-        keyed by ``(video_id, cols)``.
+        keyed by ``(video_id, cols, rows, cell_w, cell_h)``.
 
-        The image is transmitted without explicit ``c=`` / ``r=`` cell-size
-        parameters so the terminal renders it at natural pixel density without
-        stretching.
+        The image is transmitted with explicit ``c=`` / ``r=`` cell-size
+        parameters so the terminal clips the image to exactly the reserved
+        area, preventing overflow when navigating between items.
 
         Args:
             video: Video whose thumbnail should be encoded.
             cols: Target width in terminal columns.
+            rows: Target height in terminal rows.
+            cell_w: Width of a single terminal cell in pixels.
+            cell_h: Height of a single terminal cell in pixels.
 
         Returns:
             Raw bytes containing the Kitty APC sequences, or ``None`` if the
             thumbnail cannot be loaded or PIL is not available.
         """
-        cache_key = (video.id, cols)
+        cache_key = (video.id, cols, rows, cell_w, cell_h)
         if cache_key in self._thumb_kitty_cache:
             return self._thumb_kitty_cache[cache_key]
 
@@ -383,8 +387,8 @@ class YouTubeTUI:
             from PIL import Image
             img = Image.open(cache_path).convert("RGB")
 
-            # Scale to target pixel width = cols * 8px/cell, preserve aspect ratio
-            target_w = cols * 8
+            # Scale to target pixel width using actual cell dimensions
+            target_w = cols * cell_w
             ratio = target_w / img.width
             target_h = round(img.height * ratio)
             img = img.resize((target_w, target_h), Image.LANCZOS)
@@ -399,9 +403,9 @@ class YouTubeTUI:
             for i, chunk in enumerate(chunks):
                 more = 1 if i < len(chunks) - 1 else 0
                 if i == 0:
-                    # No c=/r= — terminal maps pixels to cells at natural density,
-                    # no forced stretching in either axis.
-                    payload = f'a=T,f=100,q=2,m={more};{chunk}'
+                    # c=/r= clip the image to exactly the reserved cell area,
+                    # preventing overflow regardless of rounding differences.
+                    payload = f'a=T,f=100,c={cols},r={rows},q=2,m={more};{chunk}'
                 else:
                     payload = f'm={more};{chunk}'
                 result += f'\033_G{payload}\033\\'.encode('ascii')
@@ -412,7 +416,8 @@ class YouTubeTUI:
             self._thumb_kitty_cache[cache_key] = None
             return None
 
-    def _draw_thumbnail_kitty(self, abs_row: int, abs_col: int, cols: int, rows: int, video: Video) -> None:
+    def _draw_thumbnail_kitty(self, abs_row: int, abs_col: int, cols: int, rows: int,
+                              video: Video, cell_w: int, cell_h: int) -> None:
         """Renders the thumbnail at an absolute terminal position using the Kitty protocol.
 
         First deletes any existing Kitty image (``a=d,d=A``), then moves the
@@ -424,11 +429,13 @@ class YouTubeTUI:
             abs_row: Terminal row (0-based) for the top-left corner.
             abs_col: Terminal column (0-based) for the top-left corner.
             cols: Width in columns used when encoding the image.
-            rows: Height in rows (informational; the terminal auto-wraps).
+            rows: Height in rows for the image area.
             video: Video whose thumbnail should be rendered.
+            cell_w: Width of a single terminal cell in pixels.
+            cell_h: Height of a single terminal cell in pixels.
         """
         delete = b'\033_Ga=d,d=A\033\\'
-        data = self._kitty_encode(video, cols)
+        data = self._kitty_encode(video, cols, rows, cell_w, cell_h)
         if not data:
             sys.stdout.buffer.write(delete)
             sys.stdout.buffer.flush()
@@ -992,11 +999,11 @@ class YouTubeTUI:
                 right_width = sw - left_width - 1
 
                 # Thumbnail geometry using actual cell pixel size from TIOCGWINSZ.
-                # Image is PIL-resized to thumb_cols*8 px wide (see _kitty_encode),
-                # so rows = ceil(thumb_cols * 8 * 9/16 / cell_h_px) for 16:9 source.
+                # Image is PIL-resized to thumb_cols * cell_w px wide (see _kitty_encode),
+                # so rows = ceil(target_h_px / cell_h_px) for 16:9 source.
                 thumb_cols = max(0, right_width - 1)
                 _cell_h, _cell_w = self._get_cell_px()
-                _target_w_px = thumb_cols * 8  # matches _kitty_encode resize target
+                _target_w_px = thumb_cols * _cell_w
                 _target_h_px = round(_target_w_px * 9 / 16)   # maxresdefault is 16:9
                 thumb_rows = max(0, math.ceil(_target_h_px / _cell_h))
                 if sh - 1 - thumb_rows < 8:
@@ -1032,7 +1039,7 @@ class YouTubeTUI:
                     _img_cols = math.ceil(_target_w_px / _cell_w)
                     _h_offset = max(0, (right_width - _img_cols) // 2)
                     thumb_abs_col = left_width + 1 + _h_offset
-                    self._draw_thumbnail_kitty(thumb_abs_row, thumb_abs_col, thumb_cols, thumb_rows, thumb_video)
+                    self._draw_thumbnail_kitty(thumb_abs_row, thumb_abs_col, thumb_cols, thumb_rows, thumb_video, _cell_w, _cell_h)
 
                 if self.show_help:
                     self._draw_help_overlay(stdscr)
