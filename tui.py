@@ -370,17 +370,27 @@ class YouTubeTUI:
         url = f"https://i.ytimg.com/vi/{video.id}/maxresdefault.jpg"
 
         if not os.path.exists(cache_path):
+            # Download to a temp file and atomically rename, so an interrupted
+            # urlretrieve never leaves a truncated *_max.jpg behind that would
+            # then poison every subsequent render attempt.
+            tmp_path = cache_path + ".tmp"
             try:
-                urllib.request.urlretrieve(url, cache_path)
+                urllib.request.urlretrieve(url, tmp_path)
+                os.replace(tmp_path, cache_path)
             except Exception:
+                if os.path.exists(tmp_path):
+                    try: os.remove(tmp_path)
+                    except OSError: pass
                 # fallback to stored thumbnail_url
                 if not video.thumbnail_url:
-                    self._thumb_kitty_cache[cache_key] = None
                     return None
                 try:
-                    urllib.request.urlretrieve(video.thumbnail_url, cache_path)
+                    urllib.request.urlretrieve(video.thumbnail_url, tmp_path)
+                    os.replace(tmp_path, cache_path)
                 except Exception:
-                    self._thumb_kitty_cache[cache_key] = None
+                    if os.path.exists(tmp_path):
+                        try: os.remove(tmp_path)
+                        except OSError: pass
                     return None
 
         try:
@@ -413,7 +423,13 @@ class YouTubeTUI:
             self._thumb_kitty_cache[cache_key] = result
             return result
         except Exception:
-            self._thumb_kitty_cache[cache_key] = None
+            # The on-disk file is unusable (truncated download, decoder error).
+            # Remove it so the next render attempt re-downloads instead of
+            # repeatedly hitting the same broken bytes. Do NOT cache None,
+            # otherwise a single bad fetch would hide the thumbnail until
+            # the process restarts.
+            try: os.remove(cache_path)
+            except OSError: pass
             return None
 
     def _draw_thumbnail_kitty(self, abs_row: int, abs_col: int, cols: int, rows: int,
