@@ -117,6 +117,7 @@ Wyświetla:
 - Pozycja: przypięty do dołu panelu; liczba wierszy obliczana przez `ceil(target_h_px / cell_h_px)` na podstawie faktycznego rozmiaru komórki z `TIOCGWINSZ`.
 - Centrowanie poziome: offset = `(pane_width - img_cols) // 2`.
 - Pre-download: podczas synchronizacji thumbnails pobierane są równolegle (10 wątków) dla wszystkich nowych filmów.
+- **Odporność cache na przerwane pobieranie:** zarówno pre-download (`main.download_thumbnails`), jak i renderowanie on-demand (`tui._kitty_encode`) zapisują plik do `{cache_path}.tmp` i dopiero po zakończeniu wykonują `os.replace()` do finalnej nazwy. Dzięki temu przerwane pobieranie (Ctrl-C, błąd sieci, równoległa nawigacja) nie zostawia obciętych `*_max.jpg`, które trwale uniemożliwiałyby wyświetlenie miniatury. Dodatkowo, jeśli PIL nie potrafi zdekodować istniejącego pliku, jest on usuwany i przy następnym renderingu nastąpi ponowna próba pobrania.
 
 #### Pasek statusu (footer)
 Zawsze widoczny na dole ekranu. Tryby wyświetlania:
