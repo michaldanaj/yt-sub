@@ -187,6 +187,41 @@ class YouTubeTUI:
                 return idx
         return -1
 
+    def _reselect_nearest_visible(self, prev_selected_id: Optional[str]) -> None:
+        """Keeps the selection visually anchored after the display list changes.
+
+        Called after a filter toggle (e.g. shorts on/off) when the previously
+        selected video may have been filtered out.  Walks ``self.videos``
+        upwards from the previous selection (towards newer entries, the
+        direction the user perceives as "above" in the pane) looking for the
+        first video that still passes the active filters; falls back to the
+        first one downwards if none above remains visible.
+
+        Args:
+            prev_selected_id: ID of the video that was selected before the
+                filter change.  ``None`` means there was no prior selection,
+                in which case nothing is done.
+        """
+        if not prev_selected_id or self._find_current_display_index() != -1:
+            return
+        visible_ids = {item["content"].id for item in self.display_items
+                       if item["type"] == "video"}
+        if not visible_ids:
+            return
+        prev_idx = next((i for i, v in enumerate(self.videos)
+                         if v.id == prev_selected_id), -1)
+        if prev_idx == -1:
+            return
+        for offset in range(1, len(self.videos)):
+            up = prev_idx - offset
+            if up >= 0 and self.videos[up].id in visible_ids:
+                self.selected_id = self.videos[up].id
+                return
+            down = prev_idx + offset
+            if down < len(self.videos) and self.videos[down].id in visible_ids:
+                self.selected_id = self.videos[down].id
+                return
+
     def _safe_addstr(self, win: "curses.window", y: int, x: int, text: str, attr: int = curses.A_NORMAL) -> None:
         """Writes a string to a curses window, clipping to window boundaries.
 
@@ -833,40 +868,46 @@ class YouTubeTUI:
                 self.display_items = self._get_display_list()
             self.input_buffer = ""
         elif key == ord('L'):
+            prev_id = self.selected_id
             self.show_watch_later = not self.show_watch_later
             self.display_items = self._get_display_list()
             if self.show_watch_later:
                 video_count = sum(1 for v in self.videos if v.watch_later)
                 if not any(item["type"] == "video" for item in self.display_items):
                     self._show_message(stdscr, f"Watch Later list is empty (Total: {video_count})")
-            if self.display_items and self._find_current_display_index() == -1:
-                for item in self.display_items:
-                    if item["type"] == "video":
-                        self.selected_id = item["content"].id; break
+            self._reselect_nearest_visible(prev_id)
             self.input_buffer = ""
         elif key == ord('d'):
             v = self._get_selected_video()
             if v and v.watch_later:
+                prev_id = self.selected_id
                 v.watch_later = False
                 self.db.update_watch_later(v.id, False)
                 self._show_message(stdscr, "Removed from Watch Later")
                 self.display_items = self._get_display_list()
+                self._reselect_nearest_visible(prev_id)
             self.input_buffer = ""
         elif key == ord('s'):
+            prev_id = self.selected_id
             self.show_shorts = not self.show_shorts
             self.display_items = self._get_display_list()
+            self._reselect_nearest_visible(prev_id)
             self.input_buffer = ""
         elif key == ord('S'):
+            prev_id = self.selected_id
             self._set_shorts_threshold(stdscr)
             self.display_items = self._get_display_list()
+            self._reselect_nearest_visible(prev_id)
             self.input_buffer = ""
         elif key == ord('b'):
+            prev_id = self.selected_id
             if self.filter_channel_id:
                 self.filter_channel_id = None
             else:
                 v = self._get_selected_video()
                 if v: self.filter_channel_id = v.channel_id
             self.display_items = self._get_display_list()
+            self._reselect_nearest_visible(prev_id)
             self.input_buffer = ""
         elif key in [curses.KEY_UP, ord('k')]:
             curr = self._find_current_display_index()
