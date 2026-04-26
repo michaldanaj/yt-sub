@@ -15,3 +15,4 @@ playlist_cache.json
 youtube_monitor.db
 
 .thumb_cache
+sync_error.log

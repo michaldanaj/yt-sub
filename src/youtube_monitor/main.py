@@ -15,10 +15,10 @@ logging.basicConfig(
     format="%(asctime)s %(name)s %(levelname)s: %(message)s",
 )
 
-from youtube_client import YouTubeClient
-from database import Database
-from tui import start_tui, THUMB_CACHE_DIR
-from models import Video
+from .youtube_client import YouTubeClient
+from .database import Database
+from .tui import start_tui, THUMB_CACHE_DIR
+from .models import Video
 
 # Number of parallel thumbnail downloads; kept below SYNC_MAX_WORKERS
 # to avoid hammering i.ytimg.com during a large initial sync.

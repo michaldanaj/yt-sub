@@ -2,7 +2,7 @@ import sqlite3
 import threading
 from typing import Dict, List, Optional
 from datetime import datetime
-from models import Channel, Video
+from .models import Channel, Video
 
 DB_PATH = "youtube_monitor.db"
 
