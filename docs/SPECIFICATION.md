@@ -13,14 +13,35 @@ Aplikacja służy do pobierania, przechowywania w lokalnej bazie danych i wyświ
 - **Synchronizacja w tle:** Wątek daemon (`threading`) komunikujący się z TUI przez `queue.Queue`.
 
 ## 3. Struktura Projektu
-- `main.py`: Punkt wejściowy, obsługa argumentów CLI i orkiestracja synchronizacji.
-- `database.py`: Klasa `Database` zarządzająca schematem SQLite i operacjami zapisu/odczytu.
-- `youtube_client.py`: Klasa `YouTubeClient` obsługująca API, autoryzację i równoległe pobieranie danych.
-- `tui.py`: Klasa `YouTubeTUI` zarządzająca dwupanelowym interfejsem użytkownika.
-- `models.py`: Definicje struktur danych (`Channel`, `Video`) z użyciem `dataclasses`.
-- `config.json`: Opcjonalny plik konfiguracyjny (tworzony/edytowany przez użytkownika).
-- `credentials.pickle`: Token OAuth 2.0 (tworzony automatycznie przy pierwszym uruchomieniu).
-- `sync_error.log`: Log błędów synchronizacji w tle (tworzony automatycznie przy błędzie).
+Layout `src/` z pakietem `youtube_monitor` (instalowany przez `hatchling`, entry point `youtube-monitor`).
+
+```
+.
+├── src/youtube_monitor/
+│   ├── __init__.py
+│   ├── __main__.py        # umożliwia `python -m youtube_monitor`
+│   ├── main.py            # Punkt wejścia, CLI, orkiestracja synchronizacji
+│   ├── database.py        # Klasa Database (SQLite)
+│   ├── youtube_client.py  # Klasa YouTubeClient (API, OAuth, pobieranie)
+│   ├── tui.py             # Klasa YouTubeTUI (curses, dwa panele)
+│   └── models.py          # Dataclasses: Channel, Video
+├── docs/
+│   ├── SPECIFICATION.md   # ten plik
+│   ├── TODO.md            # backlog propozycji funkcji
+│   ├── GEMINI.md
+│   └── audits/            # historyczne audyty kodu
+├── pyproject.toml         # metadata projektu, definicja entry pointu
+├── uv.lock
+├── CLAUDE.md              # instrukcje dla asystenta
+├── README.md
+├── config.json            # opcjonalna konfiguracja użytkownika
+├── credentials.pickle     # token OAuth 2.0 (auto, gitignored)
+├── youtube_monitor.db     # SQLite (auto, gitignored)
+├── sync_error.log         # log błędów sync (auto, gitignored)
+└── .thumb_cache/          # cache miniatur (auto, gitignored)
+```
+
+Importy wewnątrz pakietu są relatywne (`from .models import Video`).
 
 ## 4. Przechowywanie Danych (SQLite)
 Aplikacja przechowuje pełne informacje dostępne przez API:

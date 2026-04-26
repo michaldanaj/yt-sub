@@ -15,8 +15,8 @@ import io
 import urllib.request
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timezone
-from models import Video
-from database import Database
+from .models import Video
+from .database import Database
 
 CONFIG_PATH = "config.json"
 THUMB_CACHE_DIR = ".thumb_cache"

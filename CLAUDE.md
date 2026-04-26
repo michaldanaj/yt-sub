@@ -1,9 +1,13 @@
 
 # Uruchamianie programu
 
-Do uruchamiania main.py używaj uv:
+Aplikacja jest spakowana jako pakiet `youtube_monitor` w `src/`. Do uruchomienia używaj uv:
 ```bash
-uv run main.py
+uv run youtube-monitor
+```
+Albo jako moduł:
+```bash
+uv run python -m youtube_monitor
 ```
 
 # Specyfikacja projektu

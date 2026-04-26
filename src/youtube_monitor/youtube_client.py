@@ -14,7 +14,7 @@ import google_auth_oauthlib.flow
 import googleapiclient.discovery
 import googleapiclient.errors
 
-from models import Channel, Video
+from .models import Channel, Video
 
 # Constants
 SCOPES = ["https://www.googleapis.com/auth/youtube.force-ssl"]
