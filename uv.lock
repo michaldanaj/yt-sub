@@ -380,7 +380,7 @@ wheels = [
 ]
 
 [[package]]
-name = "youtube-monitor"
+name = "yt-sub"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
