@@ -1,5 +1,5 @@
 [project]
-name = "youtube-monitor"
+name = "yt-sub"
 version = "0.1.0"
 description = "TUI for browsing YouTube subscriptions"
 readme = "README.md"
@@ -12,11 +12,11 @@ dependencies = [
 ]
 
 [project.scripts]
-youtube-monitor = "youtube_monitor.main:main"
+yt-sub = "yt_sub.main:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/youtube_monitor"]
+packages = ["src/yt_sub"]

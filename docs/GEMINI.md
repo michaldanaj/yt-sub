@@ -1,6 +1,6 @@
 Do uruchamiania używaj uv:
 ```bash
-uv run youtube-monitor
+uv run yt-sub
 ```
 
 W pliku docs/SPECIFICATION.md znajduje się specyfikacja programu, którą przeważnie ty zarządzasz. Jeśli dodam jakieś wymaganie, doprecyzowanie jakiejś kwestii, po wykonaniu zadania dodaj odpowiednią aktualizację do specyfikacji.

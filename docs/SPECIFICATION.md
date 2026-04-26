@@ -13,13 +13,13 @@ Aplikacja służy do pobierania, przechowywania w lokalnej bazie danych i wyświ
 - **Synchronizacja w tle:** Wątek daemon (`threading`) komunikujący się z TUI przez `queue.Queue`.
 
 ## 3. Struktura Projektu
-Layout `src/` z pakietem `youtube_monitor` (instalowany przez `hatchling`, entry point `youtube-monitor`).
+Layout `src/` z pakietem `yt_sub` (instalowany przez `hatchling`, entry point `yt-sub`).
 
 ```
 .
-├── src/youtube_monitor/
+├── src/yt_sub/
 │   ├── __init__.py
-│   ├── __main__.py        # umożliwia `python -m youtube_monitor`
+│   ├── __main__.py        # umożliwia `python -m yt_sub`
 │   ├── main.py            # Punkt wejścia, CLI, orkiestracja synchronizacji
 │   ├── database.py        # Klasa Database (SQLite)
 │   ├── youtube_client.py  # Klasa YouTubeClient (API, OAuth, pobieranie)

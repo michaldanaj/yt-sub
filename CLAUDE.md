@@ -1,13 +1,13 @@
 
 # Uruchamianie programu
 
-Aplikacja jest spakowana jako pakiet `youtube_monitor` w `src/`. Do uruchomienia używaj uv:
+Aplikacja jest spakowana jako pakiet `yt_sub` w `src/`. Do uruchomienia używaj uv:
 ```bash
-uv run youtube-monitor
+uv run yt-sub
 ```
 Albo jako moduł:
 ```bash
-uv run python -m youtube_monitor
+uv run python -m yt_sub
 ```
 
 # Specyfikacja projektu
