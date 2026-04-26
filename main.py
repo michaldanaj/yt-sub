@@ -51,14 +51,22 @@ def download_thumbnails(
 
     def fetch(video: Video) -> None:
         path = os.path.join(THUMB_CACHE_DIR, f"{video.id}_max.jpg")
+        # Each worker writes to its own temp path and atomically renames on
+        # success, so an interrupted sync (Ctrl-C, crash, network error) never
+        # leaves a truncated *_max.jpg that would later poison rendering.
+        tmp_path = path + f".tmp.{os.getpid()}.{id(video)}"
         for url in [f"https://i.ytimg.com/vi/{video.id}/maxresdefault.jpg",
                     video.thumbnail_url]:
             if not url:
                 continue
             try:
-                urllib.request.urlretrieve(url, path)
+                urllib.request.urlretrieve(url, tmp_path)
+                os.replace(tmp_path, path)
                 return
             except Exception:
+                if os.path.exists(tmp_path):
+                    try: os.remove(tmp_path)
+                    except OSError: pass
                 continue
 
     with ThreadPoolExecutor(max_workers=THUMB_MAX_WORKERS) as executor:
