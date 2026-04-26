@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" font-family="ui-monospace, 'JetBrains Mono', 'Fira Code', monospace">
+  <title>yt-sub: terminal aesthetic</title>
+  <rect width="256" height="256" rx="32" fill="#0d0d0d"/>
+  <rect x="16" y="16" width="224" height="32" rx="8" fill="#262626"/>
+  <circle cx="36" cy="32" r="6" fill="#ff5f56"/>
+  <circle cx="56" cy="32" r="6" fill="#ffbd2e"/>
+  <circle cx="76" cy="32" r="6" fill="#27c93f"/>
+  <text x="32" y="120" font-size="40" font-weight="700" fill="#ff3b30">▶</text>
+  <text x="80" y="120" font-size="40" font-weight="700" fill="#e6e6e6">yt</text>
+  <text x="32" y="180" font-size="40" font-weight="700" fill="#e6e6e6">-sub</text>
+  <rect x="180" y="148" width="14" height="34" fill="#27c93f">
+    <animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite"/>
+  </rect>
+</svg>

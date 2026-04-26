@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=yt-sub
+GenericName=YouTube Subscription Monitor
+Comment=Przegląd subskrypcji YouTube w terminalu
+TryExec=yt-sub
+Exec=yt-sub
+Icon=yt-sub
+Terminal=true
+Categories=AudioVideo;ConsoleOnly;
+Keywords=youtube;subscription;tui;video;subskrypcje;
+StartupNotify=false

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <title>yt-sub: classic play button</title>
+  <rect x="16" y="48" width="224" height="160" rx="40" fill="#cc0000"/>
+  <rect x="16" y="48" width="224" height="160" rx="40" fill="none" stroke="#7a0000" stroke-width="4"/>
+  <polygon points="104,96 104,160 160,128" fill="#ffffff"/>
+</svg>

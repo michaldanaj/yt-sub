@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <title>yt-sub: monogram</title>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ff3b30"/>
+      <stop offset="100%" stop-color="#a8001b"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#g)"/>
+  <text x="50%" y="50%" text-anchor="middle" dominant-baseline="central"
+        font-size="120" font-weight="800" fill="#ffffff" letter-spacing="-6">yt</text>
+  <rect x="64" y="200" width="128" height="6" rx="3" fill="#ffffff" opacity="0.85"/>
+  <text x="50%" y="234" text-anchor="middle" font-size="28" font-weight="600"
+        fill="#ffffff" opacity="0.9" letter-spacing="4">SUB</text>
+</svg>

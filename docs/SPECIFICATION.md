@@ -11,6 +11,7 @@ Aplikacja służy do pobierania, przechowywania w lokalnej bazie danych i wyświ
 - **Interfejs:** TUI (Terminal User Interface) oparty na `curses`.
 - **Odtwarzacz:** Zewnętrzny odtwarzacz `mpv`.
 - **Synchronizacja w tle:** Wątek daemon (`threading`) komunikujący się z TUI przez `queue.Queue`.
+- **Instalacja desktopowa:** `install.sh` wykonuje `uv tool install .` (binary `yt-sub` w `~/.local/bin/`), kopiuje ikonę do `~/.local/share/icons/hicolor/scalable/apps/yt-sub.svg` oraz `yt-sub.desktop` do `~/.local/share/applications/`. Wpis ma `Terminal=true`, więc menu uruchamia aplikację w domyślnym terminalu użytkownika. Pełne wyświetlanie miniatur wymaga terminala z obsługą Kitty Graphics Protocol (Kitty, Konsole, WezTerm, Ghostty). Odinstalowanie: `./install.sh --remove`.
 
 ## 3. Struktura Projektu
 Layout `src/` z pakietem `yt_sub` (instalowany przez `hatchling`, entry point `yt-sub`).
@@ -30,6 +31,9 @@ Layout `src/` z pakietem `yt_sub` (instalowany przez `hatchling`, entry point `y
 │   ├── TODO.md            # backlog propozycji funkcji
 │   ├── GEMINI.md
 │   └── audits/            # historyczne audyty kodu
+├── icons/                 # 6 propozycji ikon (SVG); yt-sub.svg = aktywna
+├── yt-sub.desktop         # Desktop Entry instalowany do ~/.local/share/applications/
+├── install.sh             # Instaluje pakiet jako uv tool + .desktop + ikona
 ├── pyproject.toml         # metadata projektu, definicja entry pointu
 ├── uv.lock
 ├── CLAUDE.md              # instrukcje dla asystenta
