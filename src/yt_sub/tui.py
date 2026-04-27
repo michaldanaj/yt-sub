@@ -820,6 +820,15 @@ class YouTubeTUI:
             sep()
             seg(f" :{self.input_buffer}")
 
+        # Version label, right-aligned. Skip if it would overlap the existing
+        # left-side content (x_footer already past the right edge minus label).
+        from . import __version__
+        ver_text = f" v{__version__} "
+        ver_x = sw - len(ver_text)
+        if ver_x > x_footer:
+            self._safe_addstr(stdscr, sh - 1, ver_x, ver_text,
+                              curses.color_pair(9) | curses.A_REVERSE)
+
     def _handle_key(self, key: int, count: int, stdscr: "curses.window") -> bool:
         """Dispatches a single keypress to the appropriate action.
 

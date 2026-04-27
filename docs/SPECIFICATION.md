@@ -153,6 +153,7 @@ Zawsze widoczny na dole ekranu. Tryby wyświetlania:
 - **Tryb wyszukiwania:** `SEARCH: <zapytanie>_` (pogrubiony).
 - **Synchronizacja w toku:** Dodatkowy segment `[SYNC: <wiadomość>]` z postępem.
 - **Bufor wejścia (liczba przed komendą):** Segment `:<bufor>`.
+- **Wersja aplikacji:** segment ` v<X.Y.Z> ` wyświetlany przy prawej krawędzi paska, w tym samym kolorze co separator `|` (`color_pair(9) | A_REVERSE`). Pomijany, jeśli zawartość po lewej stronie zajmuje całą dostępną szerokość (kontrola: `sw - len(label) > x_footer`).
 
 Podczas synchronizacji progress komunikaty przesyłane są przez `sync_queue` i wyświetlane w pasku statusu. Po zakończeniu synchronizacji wyświetlany jest toast z informacją o liczbie zaktualizowanych/dodanych filmów.
 
@@ -167,10 +168,13 @@ Gdy wątek synchronizacji prześle nowe filmy:
 ## 6. Argumenty Wiersza Poleceń
 | Argument | Opis |
 |----------|------|
+| `--version` | Wypisuje numer wersji w formacie `yt-sub X.Y.Z` i kończy działanie |
 | `--date-limit YYYY-MM-DD` | Synchronizacja od podanej daty (zamiast daty z ostatniej synchronizacji) |
 | `--display-channels` | Wyświetlenie listy kanałów z bazy danych (bez TUI) |
 | `--no-tui` | Wyświetlenie 50 ostatnich filmów w trybie tekstowym (bez TUI, bez synchronizacji w tle) |
 | `--sync-only` | Tylko synchronizacja danych, bez uruchamiania TUI |
+
+Wersja jest pobierana przez `importlib.metadata.version("yt-sub")` w `yt_sub/__init__.py` (`__version__`). Jedyne źródło prawdy: pole `version` w `pyproject.toml`. Gdy pakiet nie jest zainstalowany (uruchamianie wprost z czekoutu bez `uv sync`), zwracana jest wartość `0.0.0+dev`.
 
 ## 7. Konfiguracja (`config.json`)
 Użytkownik może personalizować wygląd TUI poprzez edycję pliku `~/.config/yt-sub/config.json`. Plik tworzony jest automatycznie z wartościami domyślnymi przy ustawieniu progu Shortów przez `S`. Jeśli plik nie istnieje, używane są wartości domyślne.
