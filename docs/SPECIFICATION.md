@@ -30,7 +30,9 @@ Layout `src/` z pakietem `yt_sub` (instalowany przez `hatchling`, entry point `y
 │   ├── main.py            # Punkt wejścia, CLI, orkiestracja synchronizacji
 │   ├── database.py        # Klasa Database (SQLite)
 │   ├── youtube_client.py  # Klasa YouTubeClient (API, OAuth, pobieranie)
-│   ├── tui.py             # Klasa YouTubeTUI (curses, dwa panele)
+│   ├── tui.py             # Klasa YouTubeTUI (curses, dwa panele) — orkiestrator pętli
+│   ├── thumbnails.py      # Pobieranie + Kitty Graphics Protocol (state-light)
+│   ├── actions.py         # mpv, xclip/wl-copy, xdg-open
 │   ├── models.py          # Dataclasses: Channel, Video
 │   └── paths.py           # Resolver ścieżek XDG (config / data / cache)
 ├── docs/

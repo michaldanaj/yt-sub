@@ -18,7 +18,7 @@ W pliku docs/SPECIFICATION.md znajduje się specyfikacja programu, którą przew
 
 # git
 
-Jeśli poproszę o dokonanie jakiejś zmiany, zrób nową gałąź git, w której będziemy iterować aż do poprawnego rozwiązania. Po każdej modyfikacji kodu rób commit-a, żeby później łatwo można było wrócić do poprzednich wersji. Na koniec zapytaj mnie czy poprawki działają i jeśli uznam że modyfikacja jest poprawna, zrób merge do master z no-ff.
+Jeśli poproszę o dokonanie jakiejś zmiany, zrób nową gałąź git, w której będziemy iterować aż do poprawnego rozwiązania. Po każdej modyfikacji kodu rób commit-a, żeby później łatwo można było wrócić do poprzednich wersji. Na koniec zapytaj mnie czy poprawki działają i jeśli uznam że modyfikacja jest poprawna, podbij numer wersji programu w pyproject.toml i zrób merge do master z no-ff.
 
 ## Code Changes 
 
