@@ -1,5 +1,4 @@
 import curses
-import subprocess
 import textwrap
 import json
 import os
@@ -13,6 +12,7 @@ from .models import Video
 from .database import Database
 from . import paths
 from . import thumbnails
+from . import actions
 from .thumbnails import THUMB_CACHE_DIR
 
 CONFIG_PATH = str(paths.config_file())
@@ -233,55 +233,6 @@ class YouTubeTUI:
             available = w - x
             win.addstr(y, x, str(text)[:available-1], attr)
         except curses.error:
-            pass
-
-    def _play_video(self, video: Video) -> None:
-        """Launches mpv for the given video and blocks until playback ends.
-
-        Saves and restores the terminal shell mode so that curses can redraw
-        correctly after mpv exits.
-
-        Args:
-            video: Video to play.
-        """
-        curses.def_shell_mode()
-        subprocess.run(
-            ["mpv", "--autofit-larger=90%x90%", video.url],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-        curses.reset_shell_mode()
-
-    def _copy_to_clipboard(self, text: str) -> None:
-        """Copies text to the system clipboard using xclip or wl-copy.
-
-        Tries ``xclip`` first (X11), then ``wl-copy`` (Wayland).  Silently
-        does nothing if neither tool is installed.
-
-        Args:
-            text: String to place on the clipboard.
-        """
-        try:
-            process = subprocess.Popen(['xclip', '-selection', 'clipboard'], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
-            process.communicate(input=text.encode('utf-8'))
-            if process.returncode == 0: return
-        except FileNotFoundError: pass
-
-        try:
-            process = subprocess.Popen(['wl-copy'], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
-            process.communicate(input=text.encode('utf-8'))
-            if process.returncode == 0: return
-        except FileNotFoundError: pass
-
-    def _open_in_browser(self, video: Video) -> None:
-        """Opens the video URL in the system default browser via ``xdg-open``.
-
-        Args:
-            video: Video whose URL should be opened.
-        """
-        try:
-            subprocess.run(["xdg-open", video.url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except:
             pass
 
     def _set_shorts_threshold(self, stdscr: "curses.window") -> None:
@@ -699,11 +650,11 @@ class YouTubeTUI:
             self.input_buffer = ""
         elif key == ord('y'):
             v = self._get_selected_video()
-            if v: self._copy_to_clipboard(v.url)
+            if v: actions.copy_to_clipboard(v.url)
             self.input_buffer = ""
         elif key == ord('o'):
             v = self._get_selected_video()
-            if v: self._open_in_browser(v)
+            if v: actions.open_in_browser(v)
             self.input_buffer = ""
         elif key == ord('l'):
             v = self._get_selected_video()
@@ -846,7 +797,7 @@ class YouTubeTUI:
             self.input_buffer = ""
         elif key in [ord('\n'), curses.KEY_ENTER]:
             v = self._get_selected_video()
-            if v: self._play_video(v)
+            if v: actions.play_video(v)
             self.input_buffer = ""
         else:
             self.input_buffer = ""
