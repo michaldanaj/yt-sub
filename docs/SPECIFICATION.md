@@ -112,6 +112,8 @@ Filmy pogrupowane nagłówkami dat w formacie `--- YYYY-MM-DD ---`.
 | `ESC` | Powrót do głównej listy i wyczyszczenie wszystkich filtrów (wyszukiwanie, kanał, "Watch Later") |
 | `q` | Wyjście z aplikacji |
 
+**Coalescing trzymanego klawisza nawigacyjnego:** w pętli głównej, po przeczytaniu pierwszego klawisza ze zbioru `{KEY_UP, KEY_DOWN, j, k, J, K, KEY_NPAGE, KEY_PPAGE}`, włączany jest `nodelay(True)` i drenowane są wszystkie kolejne wystąpienia tego samego klawisza z bufora curses. Liczba przebranych powtórzeń jest dodawana do `count` przekazywanego do `_handle_key`. Bez tego OS-owy autorepeat (~30 Hz) wypełnia bufor wejścia szybciej niż pętla zdąży narysować, a po puszczeniu klawisza lista przewijała się jeszcze przez sekundę. Klawisze nie-nawigacyjne (toggle filtrów, akcje) nie są łączone — każde naciśnięcie pozostaje oddzielnym zdarzeniem.
+
 **Tryb live search (`/`):**
 - Po wciśnięciu `/` interfejs wchodzi w tryb wyszukiwania.
 - Wpisywany tekst filtruje listę w czasie rzeczywistym (filtrowanie po tytule i nazwie kanału).
@@ -147,7 +149,13 @@ Wyświetla:
 - Pozycja: przypięty do dołu panelu; liczba wierszy obliczana przez `ceil(target_h_px / cell_h_px)` na podstawie faktycznego rozmiaru komórki z `TIOCGWINSZ`.
 - Centrowanie poziome: offset = `(pane_width - img_cols) // 2`.
 - Pre-download: podczas synchronizacji thumbnails pobierane są równolegle (10 wątków) dla wszystkich nowych filmów.
-- **Odporność cache na przerwane pobieranie:** zarówno pre-download (`main.download_thumbnails`), jak i renderowanie on-demand (`tui._kitty_encode`) zapisują plik do `{cache_path}.tmp` i dopiero po zakończeniu wykonują `os.replace()` do finalnej nazwy. Dzięki temu przerwane pobieranie (Ctrl-C, błąd sieci, równoległa nawigacja) nie zostawia obciętych `*_max.jpg`, które trwale uniemożliwiałyby wyświetlenie miniatury. Dodatkowo, jeśli PIL nie potrafi zdekodować istniejącego pliku, jest on usuwany i przy następnym renderingu nastąpi ponowna próba pobrania.
+- **Odporność cache na przerwane pobieranie:** zarówno pre-download (`main.download_thumbnails`), jak i renderowanie on-demand (`thumbnails.encode_kitty`) zapisują plik do `{cache_path}.tmp` i dopiero po zakończeniu wykonują `os.replace()` do finalnej nazwy. Dzięki temu przerwane pobieranie (Ctrl-C, błąd sieci, równoległa nawigacja) nie zostawia obciętych `*_max.jpg`, które trwale uniemożliwiałyby wyświetlenie miniatury. Dodatkowo, jeśli PIL nie potrafi zdekodować istniejącego pliku, jest on usuwany i przy następnym renderingu nastąpi ponowna próba pobrania.
+- **Asynchroniczne pobieranie i encode (non-blocking):** `encode_kitty` jest O(1) i nigdy nie blokuje pętli curses. Trzy ścieżki:
+  1. Cache hit → bytes natychmiast.
+  2. Plik na dysku, brak encode w cache → submit do `ThreadPoolExecutor` (4 workery), zwróć `None`. Worker robi `Image.open + resize LANCZOS + PNG + base64` (~50–200 ms) i zapisuje do cache na klucz `(video_id, cols, rows, cell_w, cell_h)`.
+  3. Brak pliku → submit pobrania (atomic temp + rename), zwróć `None`.
+
+  Workery oba dedupowane przez sety in-flight (osobne dla download i encode). Po zakończeniu zadania ustawiany jest `threading.Event`; główna pętla sprawdza go przez `thumbnails.take_redraw_event()` na każdej iteracji i wymusza pełny redraw. Maksymalne opóźnienie pojawienia się miniatury ≈ 100 ms (timeout `getch`).
 
 #### Pasek statusu (footer)
 Zawsze widoczny na dole ekranu. Tryby wyświetlania:

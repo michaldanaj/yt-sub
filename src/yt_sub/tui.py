@@ -827,6 +827,17 @@ class YouTubeTUI:
         left_win = None
         right_win = None
 
+        # Keys that benefit from coalescing when held down: the user really
+        # wants to move N steps, not to fire N independent _handle_key calls.
+        # Non-movement keys (e.g. ``l``, ``s``, ``b``) MUST NOT be coalesced
+        # because each press is a distinct toggle.
+        NAV_KEYS = {
+            curses.KEY_UP, curses.KEY_DOWN,
+            ord('j'), ord('k'),
+            ord('J'), ord('K'),
+            curses.KEY_NPAGE, curses.KEY_PPAGE,
+        }
+
         while True:
             sh, sw = stdscr.getmaxyx()
             self._last_sh = sh
@@ -836,6 +847,10 @@ class YouTubeTUI:
                 stdscr.refresh()
                 if stdscr.getch() == ord('q'): break
                 continue
+
+            # Background thumbnail downloads request a redraw via this event.
+            if thumbnails.take_redraw_event():
+                force_redraw = True
 
             sync_redraw = self._poll_sync_queue(stdscr)
             needs_redraw = force_redraw or sync_redraw == "full"
@@ -910,6 +925,27 @@ class YouTubeTUI:
                 force_redraw = True
                 continue
 
+            # Coalesce held-down navigation keys: drain any pending repeats
+            # of the SAME key and convert them into a count. Without this,
+            # OS autorepeat (~30 Hz) outpaces our redraw cycle, the input
+            # buffer fills up, and the list keeps scrolling for a second
+            # or two after the user releases the key.
+            extra_count = 0
+            if key in NAV_KEYS:
+                stdscr.nodelay(True)
+                try:
+                    while True:
+                        nxt = stdscr.getch()
+                        if nxt == -1:
+                            break
+                        if nxt == key:
+                            extra_count += 1
+                        else:
+                            curses.ungetch(nxt)
+                            break
+                finally:
+                    stdscr.nodelay(False)
+
             force_redraw = True
 
             # Live search mode
@@ -940,6 +976,7 @@ class YouTubeTUI:
                     continue
 
             count = int(self.input_buffer) if self.input_buffer and self.input_buffer.isdigit() else 1
+            count += extra_count
 
             if self._handle_key(key, count, stdscr):
                 break
