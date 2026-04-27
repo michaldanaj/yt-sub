@@ -17,9 +17,10 @@ from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timezone
 from .models import Video
 from .database import Database
+from . import paths
 
-CONFIG_PATH = "config.json"
-THUMB_CACHE_DIR = ".thumb_cache"
+CONFIG_PATH = str(paths.config_file())
+THUMB_CACHE_DIR = str(paths.thumb_cache_dir())
 
 # Fallback terminal cell size used when TIOCGWINSZ returns zeroes.
 # 16px tall × 8px wide matches most common terminal font defaults.

@@ -9,8 +9,10 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Callable, List, Optional
 
+from . import paths
+
 logging.basicConfig(
-    filename="sync_error.log",
+    filename=str(paths.log_file()),
     level=logging.WARNING,
     format="%(asctime)s %(name)s %(levelname)s: %(message)s",
 )
@@ -134,7 +136,7 @@ def background_sync(
         error_msg = f"Sync error: {str(e)}"
         progress(error_msg)
         # Log to file for debugging
-        with open("sync_error.log", "a") as f:
+        with open(paths.log_file(), "a") as f:
             f.write(f"{datetime.now()}: {error_msg}\n")
             f.write(traceback.format_exc() + "\n")
     finally:

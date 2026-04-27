@@ -19,6 +19,10 @@ DESKTOP_SRC="$SCRIPT_DIR/$APP_NAME.desktop"
 DESKTOP_DIR="$HOME/.local/share/applications"
 DESKTOP_DST="$DESKTOP_DIR/$APP_NAME.desktop"
 
+# XDG dirs (pakiet używa ich do config / bazy / cache).
+XDG_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/$APP_NAME"
+XDG_DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/$APP_NAME"
+
 refresh_caches() {
     command -v update-desktop-database &>/dev/null \
         && update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
@@ -63,6 +67,25 @@ fi
 mkdir -p "$ICON_DIR"
 cp "$ICON_SRC" "$ICON_DST"
 echo "  Ikona: $ICON_DST"
+
+# --- Migracja istniejących plików konfiguracji do XDG ---
+# Tylko gdy plik źródłowy istnieje w katalogu projektu, a docelowy w XDG
+# jeszcze nie. To zachowuje twoją działającą bazę i token OAuth przy
+# pierwszej instalacji desktopowej.
+mkdir -p "$XDG_CONFIG_DIR" "$XDG_DATA_DIR"
+migrate() {
+    local src="$1" dst="$2"
+    if [[ -e "$src" && ! -e "$dst" ]]; then
+        cp -p "$src" "$dst"
+        echo "  Skopiowano: $(basename "$src") → $dst"
+    fi
+}
+migrate "$SCRIPT_DIR/config.json"        "$XDG_CONFIG_DIR/config.json"
+migrate "$SCRIPT_DIR/credentials.pickle" "$XDG_CONFIG_DIR/credentials.pickle"
+for cs in "$SCRIPT_DIR"/client_secret_*.json; do
+    [[ -e "$cs" ]] && migrate "$cs" "$XDG_CONFIG_DIR/$(basename "$cs")"
+done
+migrate "$SCRIPT_DIR/youtube_monitor.db" "$XDG_DATA_DIR/youtube_monitor.db"
 
 # --- Wpis .desktop ---
 # Wstaw pełną ścieżkę do binarki yt-sub, żeby launcher menu nie zależał

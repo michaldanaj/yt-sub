@@ -3,8 +3,9 @@ import threading
 from typing import Dict, List, Optional
 from datetime import datetime
 from .models import Channel, Video
+from . import paths
 
-DB_PATH = "youtube_monitor.db"
+DB_PATH = str(paths.database_file())
 
 
 class Database:

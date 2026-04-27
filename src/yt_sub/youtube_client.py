@@ -15,11 +15,11 @@ import googleapiclient.discovery
 import googleapiclient.errors
 
 from .models import Channel, Video
+from . import paths
 
 # Constants
 SCOPES = ["https://www.googleapis.com/auth/youtube.force-ssl"]
-CREDENTIALS_PICKLE = "credentials.pickle"
-CLIENT_SECRET_FILE = "client_secret_475291016858-5pnovc0dlqgsgv8m933qfk4u8uvs779r.apps.googleusercontent.com.json"
+CREDENTIALS_PICKLE = str(paths.credentials_file())
 
 # YouTube API quota allows ~10 000 units/day. Each playlistItems.list costs 1 unit.
 # 20 parallel workers is safe for typical subscription counts (~100-500 channels).
@@ -53,8 +53,15 @@ class YouTubeClient:
             with open(CREDENTIALS_PICKLE, "rb") as f:
                 credentials = pickle.load(f)
         else:
+            secret = paths.client_secret_file()
+            if secret is None:
+                raise FileNotFoundError(
+                    f"Brak pliku client_secret_*.json w {paths.config_dir()}. "
+                    f"Pobierz go z Google Cloud Console (OAuth 2.0 Client ID, "
+                    f"typ Desktop) i zapisz tam."
+                )
             flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
-                CLIENT_SECRET_FILE, SCOPES
+                str(secret), SCOPES
             )
             credentials = flow.run_local_server(port=0)
             with open(CREDENTIALS_PICKLE, "wb") as f:

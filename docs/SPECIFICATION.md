@@ -12,6 +12,12 @@ Aplikacja służy do pobierania, przechowywania w lokalnej bazie danych i wyświ
 - **Odtwarzacz:** Zewnętrzny odtwarzacz `mpv`.
 - **Synchronizacja w tle:** Wątek daemon (`threading`) komunikujący się z TUI przez `queue.Queue`.
 - **Instalacja desktopowa:** `install.sh` wykonuje `uv tool install .` (binary `yt-sub` w `~/.local/bin/`), kopiuje ikonę do `~/.local/share/icons/hicolor/scalable/apps/yt-sub.svg` oraz wstawia bezwzględną ścieżkę do binarki w szablonie `yt-sub.desktop` (`@YT_SUB_BIN@` → ścieżka z `command -v yt-sub`) i kopiuje go do `~/.local/share/applications/`. Wpis uruchamia WezTerm (`wezterm start --class yt-sub -- yt-sub`) — wymagany do renderowania miniatur przez Kitty Graphics Protocol. `Terminal=false`, ponieważ terminal jest spawnowany ręcznie. Odinstalowanie: `./install.sh --remove`.
+- **Lokalizacje plików runtime (XDG Base Directory):** ścieżki rozwiązuje moduł `yt_sub.paths` na podstawie zmiennych `XDG_*_HOME` (z fallbackiem na standardowe katalogi):
+  - `~/.config/yt-sub/`: `config.json`, `credentials.pickle`, `client_secret_*.json` (nazwa pliku jest globowana, nie zhardkodowana)
+  - `~/.local/share/yt-sub/`: `youtube_monitor.db`
+  - `~/.cache/yt-sub/`: `thumb_cache/`, `sync_error.log`
+
+  Dzięki temu aplikacja działa niezależnie od katalogu uruchomienia. `install.sh` przy pierwszej instalacji migruje istniejące pliki z katalogu projektu do tych lokalizacji (kopiuje, nie nadpisuje, jeśli plik docelowy już istnieje).
 
 ## 3. Struktura Projektu
 Layout `src/` z pakietem `yt_sub` (instalowany przez `hatchling`, entry point `yt-sub`).
