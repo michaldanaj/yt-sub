@@ -7,25 +7,15 @@ import queue
 import re
 import sys
 import math
-import struct
-import fcntl
-import termios
-import base64
-import io
-import urllib.request
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timezone
 from .models import Video
 from .database import Database
 from . import paths
+from . import thumbnails
+from .thumbnails import THUMB_CACHE_DIR
 
 CONFIG_PATH = str(paths.config_file())
-THUMB_CACHE_DIR = str(paths.thumb_cache_dir())
-
-# Fallback terminal cell size used when TIOCGWINSZ returns zeroes.
-# 16px tall × 8px wide matches most common terminal font defaults.
-_CELL_H_PX_FALLBACK = 16
-_CELL_W_PX_FALLBACK = 8
 
 class YouTubeTUI:
     """Dual-pane terminal UI for browsing YouTube subscriptions.
@@ -346,157 +336,6 @@ class YouTubeTUI:
         msg_win.noutrefresh()
         curses.doupdate()
         curses.napms(int(seconds * 1000))
-
-    def _get_cell_px(self) -> Tuple[int, int]:
-        """Queries the terminal for the pixel size of a single character cell.
-
-        Uses the ``TIOCGWINSZ`` ioctl to read pixel dimensions reported by the
-        terminal emulator.
-
-        Returns:
-            ``(cell_height_px, cell_width_px)``.  Falls back to
-            ``(_CELL_H_PX_FALLBACK, _CELL_W_PX_FALLBACK)`` when the ioctl
-            fails or returns zeroes.
-        """
-        try:
-            buf = struct.pack('HHHH', 0, 0, 0, 0)
-            res = fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, buf)
-            rows, cols, xpx, ypx = struct.unpack('HHHH', res)
-            if rows > 0 and cols > 0 and xpx > 0 and ypx > 0:
-                return ypx // rows, xpx // cols
-        except Exception:
-            pass
-        return _CELL_H_PX_FALLBACK, _CELL_W_PX_FALLBACK
-
-    def _kitty_encode(self, video: Video, cols: int, rows: int,
-                      cell_w: int, cell_h: int) -> Optional[bytes]:
-        """Encodes a video thumbnail as Kitty terminal graphics protocol bytes.
-
-        Downloads ``maxresdefault.jpg`` (1280×720) if not already cached,
-        resizes it to ``cols * cell_w`` px wide (preserving aspect ratio) and
-        encodes it as a sequence of APC escape sequences suitable for the Kitty
-        graphics protocol.  Results are cached in :attr:`_thumb_kitty_cache`
-        keyed by ``(video_id, cols, rows, cell_w, cell_h)``.
-
-        The image is transmitted with explicit ``c=`` / ``r=`` cell-size
-        parameters so the terminal clips the image to exactly the reserved
-        area, preventing overflow when navigating between items.
-
-        Args:
-            video: Video whose thumbnail should be encoded.
-            cols: Target width in terminal columns.
-            rows: Target height in terminal rows.
-            cell_w: Width of a single terminal cell in pixels.
-            cell_h: Height of a single terminal cell in pixels.
-
-        Returns:
-            Raw bytes containing the Kitty APC sequences, or ``None`` if the
-            thumbnail cannot be loaded or PIL is not available.
-        """
-        cache_key = (video.id, cols, rows, cell_w, cell_h)
-        if cache_key in self._thumb_kitty_cache:
-            return self._thumb_kitty_cache[cache_key]
-
-        if cols < 4:
-            self._thumb_kitty_cache[cache_key] = None
-            return None
-
-        os.makedirs(THUMB_CACHE_DIR, exist_ok=True)
-        cache_path = os.path.join(THUMB_CACHE_DIR, f"{video.id}_max.jpg")
-        url = f"https://i.ytimg.com/vi/{video.id}/maxresdefault.jpg"
-
-        if not os.path.exists(cache_path):
-            # Download to a temp file and atomically rename, so an interrupted
-            # urlretrieve never leaves a truncated *_max.jpg behind that would
-            # then poison every subsequent render attempt.
-            tmp_path = cache_path + ".tmp"
-            try:
-                urllib.request.urlretrieve(url, tmp_path)
-                os.replace(tmp_path, cache_path)
-            except Exception:
-                if os.path.exists(tmp_path):
-                    try: os.remove(tmp_path)
-                    except OSError: pass
-                # fallback to stored thumbnail_url
-                if not video.thumbnail_url:
-                    return None
-                try:
-                    urllib.request.urlretrieve(video.thumbnail_url, tmp_path)
-                    os.replace(tmp_path, cache_path)
-                except Exception:
-                    if os.path.exists(tmp_path):
-                        try: os.remove(tmp_path)
-                        except OSError: pass
-                    return None
-
-        try:
-            from PIL import Image
-            img = Image.open(cache_path).convert("RGB")
-
-            # Scale to target pixel width using actual cell dimensions
-            target_w = cols * cell_w
-            ratio = target_w / img.width
-            target_h = round(img.height * ratio)
-            img = img.resize((target_w, target_h), Image.LANCZOS)
-
-            buf = io.BytesIO()
-            img.save(buf, format='PNG')
-            b64 = base64.standard_b64encode(buf.getvalue()).decode('ascii')
-
-            chunk_size = 4096
-            chunks = [b64[i:i + chunk_size] for i in range(0, len(b64), chunk_size)]
-            result = b''
-            for i, chunk in enumerate(chunks):
-                more = 1 if i < len(chunks) - 1 else 0
-                if i == 0:
-                    # c=/r= clip the image to exactly the reserved cell area,
-                    # preventing overflow regardless of rounding differences.
-                    payload = f'a=T,f=100,c={cols},r={rows},q=2,m={more};{chunk}'
-                else:
-                    payload = f'm={more};{chunk}'
-                result += f'\033_G{payload}\033\\'.encode('ascii')
-
-            self._thumb_kitty_cache[cache_key] = result
-            return result
-        except Exception:
-            # The on-disk file is unusable (truncated download, decoder error).
-            # Remove it so the next render attempt re-downloads instead of
-            # repeatedly hitting the same broken bytes. Do NOT cache None,
-            # otherwise a single bad fetch would hide the thumbnail until
-            # the process restarts.
-            try: os.remove(cache_path)
-            except OSError: pass
-            return None
-
-    def _draw_thumbnail_kitty(self, abs_row: int, abs_col: int, cols: int, rows: int,
-                              video: Video, cell_w: int, cell_h: int) -> None:
-        """Renders the thumbnail at an absolute terminal position using the Kitty protocol.
-
-        First deletes any existing Kitty image (``a=d,d=A``), then moves the
-        cursor and sends the encoded image bytes.  The cursor position is saved
-        and restored with ``\\033[s`` / ``\\033[u`` so ncurses internal state
-        stays in sync.
-
-        Args:
-            abs_row: Terminal row (0-based) for the top-left corner.
-            abs_col: Terminal column (0-based) for the top-left corner.
-            cols: Width in columns used when encoding the image.
-            rows: Height in rows for the image area.
-            video: Video whose thumbnail should be rendered.
-            cell_w: Width of a single terminal cell in pixels.
-            cell_h: Height of a single terminal cell in pixels.
-        """
-        delete = b'\033_Ga=d,d=A\033\\'
-        data = self._kitty_encode(video, cols, rows, cell_w, cell_h)
-        if not data:
-            sys.stdout.buffer.write(delete)
-            sys.stdout.buffer.flush()
-            return
-        cursor_pos = f'\033[{abs_row + 1};{abs_col + 1}H'.encode('ascii')
-        # \033[s / \033[u — save and restore cursor position so ncurses internal
-        # tracking stays in sync with the actual terminal cursor after our write.
-        sys.stdout.buffer.write(b'\033[s' + delete + cursor_pos + data + b'\033[u')
-        sys.stdout.buffer.flush()
 
     def _draw_left_pane(self, win: "curses.window", width: int, height: int) -> None:
         """Renders the video list in the left pane.
@@ -1063,10 +902,10 @@ class YouTubeTUI:
                 right_width = sw - left_width - 1
 
                 # Thumbnail geometry using actual cell pixel size from TIOCGWINSZ.
-                # Image is PIL-resized to thumb_cols * cell_w px wide (see _kitty_encode),
+                # Image is PIL-resized to thumb_cols * cell_w px wide (see thumbnails.encode_kitty),
                 # so rows = ceil(target_h_px / cell_h_px) for 16:9 source.
                 thumb_cols = max(0, right_width - 1)
-                _cell_h, _cell_w = self._get_cell_px()
+                _cell_h, _cell_w = thumbnails.get_cell_px()
                 _target_w_px = thumb_cols * _cell_w
                 _target_h_px = round(_target_w_px * 9 / 16)   # maxresdefault is 16:9
                 thumb_rows = max(0, math.ceil(_target_h_px / _cell_h))
@@ -1103,7 +942,8 @@ class YouTubeTUI:
                     _img_cols = math.ceil(_target_w_px / _cell_w)
                     _h_offset = max(0, (right_width - _img_cols) // 2)
                     thumb_abs_col = left_width + 1 + _h_offset
-                    self._draw_thumbnail_kitty(thumb_abs_row, thumb_abs_col, thumb_cols, thumb_rows, thumb_video, _cell_w, _cell_h)
+                    thumbnails.draw_kitty(thumb_abs_row, thumb_abs_col, thumb_cols, thumb_rows,
+                                          thumb_video, _cell_w, _cell_h, self._thumb_kitty_cache)
 
                 if self.show_help:
                     self._draw_help_overlay(stdscr)
