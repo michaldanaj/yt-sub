@@ -820,6 +820,12 @@ class YouTubeTUI:
             sep()
             seg(f" :{self.input_buffer}")
 
+        # Version label appended after the last segment, in the same style
+        # as other status text (A_REVERSE, no separator color).
+        from . import __version__
+        sep()
+        seg(f" v{__version__} ")
+
     def _handle_key(self, key: int, count: int, stdscr: "curses.window") -> bool:
         """Dispatches a single keypress to the appropriate action.
 

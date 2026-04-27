@@ -153,7 +153,9 @@ def main() -> None:
     - ``--no-tui``: print the first 50 videos as plain text and exit.
     - ``--sync-only``: run a foreground sync without starting the TUI.
     """
+    from . import __version__
     parser = argparse.ArgumentParser(description="YouTube Subscription Monitor with Database & TUI")
+    parser.add_argument("--version", action="version", version=f"yt-sub {__version__}")
     parser.add_argument("--date-limit", type=str, help="Update from this date (YYYY-MM-DD). If not provided, updates from last refresh.")
     parser.add_argument("--display-channels", action="store_true", help="Display channels from database.")
     parser.add_argument("--no-tui", action="store_true", help="Don't start TUI after sync.")
