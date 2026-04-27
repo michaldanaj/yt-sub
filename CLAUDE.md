@@ -20,6 +20,15 @@ W pliku docs/SPECIFICATION.md znajduje się specyfikacja programu, którą przew
 
 Jeśli poproszę o dokonanie jakiejś zmiany, zrób nową gałąź git, w której będziemy iterować aż do poprawnego rozwiązania. Po każdej modyfikacji kodu rób commit-a, żeby później łatwo można było wrócić do poprzednich wersji. Na koniec zapytaj mnie czy poprawki działają i jeśli uznam że modyfikacja jest poprawna, podbij numer wersji programu w pyproject.toml i zrób merge do master z no-ff.
 
+## Numeracja wersji (semver)
+
+Wersja w `pyproject.toml` ma format `MAJOR.MINOR.PATCH`:
+- **PATCH** (ostatnia cyfra) — poprawki błędów, refaktoryzacje wewnętrzne, drobne poprawki bez zmiany zachowania widocznego dla użytkownika.
+- **MINOR** (środkowa cyfra) — nowa funkcjonalność dodana w sposób kompatybilny wstecz; zerujemy PATCH.
+- **MAJOR** (pierwsza cyfra) — zmiany niekompatybilne wstecz (zmiana CLI, formatu danych, struktury katalogów XDG itp.); zerujemy MINOR i PATCH.
+
+Domyślnie po zaakceptowanej zmianie podbijamy PATCH. MINOR/MAJOR podbijam tylko po Twoim potwierdzeniu lub gdy charakter zmiany jest jednoznaczny.
+
 ## Code Changes 
 
 When fixing a bug or applying a change, audit ALL locations where the same pattern occurs — not just the first instance found. Check both panels, all views, and related display logic for the same issue.
