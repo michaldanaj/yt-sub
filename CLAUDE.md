@@ -10,6 +10,8 @@ Albo jako moduł:
 uv run python -m yt_sub
 ```
 
+Po instalacji desktopowej (`./install.sh`) komenda `yt-sub` jest dostępna globalnie z `~/.local/bin/`, a aplikacja pojawia się w menu systemowym jako uruchamiana w domyślnym terminalu.
+
 # Specyfikacja projektu
 
 W pliku docs/SPECIFICATION.md znajduje się specyfikacja programu, którą przeważnie ty zarządzasz. Jeśli dodam jakieś wymaganie, doprecyzowanie jakiejś kwestii, po wykonaniu zadania dodaj odpowiednią aktualizację do specyfikacji. Specyfikacja powinna być tak napisana, że programista na jej podstawie odtworzy wszystkie funkcjonalności aplikacji.

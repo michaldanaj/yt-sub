@@ -5,12 +5,19 @@ Aplikacja służy do pobierania, przechowywania w lokalnej bazie danych i wyświ
 
 ## 2. Architektura i Technologie
 - **Język:** Python 3.
-- **Baza danych:** SQLite (`youtube_monitor.db`).
+- **Baza danych:** SQLite (`~/.local/share/yt-sub/youtube_monitor.db`).
 - **API:** YouTube Data API v3.
-- **Autoryzacja:** OAuth 2.0 (Flow: Installed Application); token zapisywany w `credentials.pickle`.
+- **Autoryzacja:** OAuth 2.0 (Flow: Installed Application); token zapisywany w `~/.config/yt-sub/credentials.pickle`. Plik client-secret (`client_secret_*.json`) jest globowany w katalogu konfiguracyjnym, więc dowolny client ID Google Cloud działa bez zmian w kodzie.
 - **Interfejs:** TUI (Terminal User Interface) oparty na `curses`.
 - **Odtwarzacz:** Zewnętrzny odtwarzacz `mpv`.
 - **Synchronizacja w tle:** Wątek daemon (`threading`) komunikujący się z TUI przez `queue.Queue`.
+- **Instalacja desktopowa:** `install.sh` wykonuje `uv tool install .` (binary `yt-sub` w `~/.local/bin/`), kopiuje ikonę do `~/.local/share/icons/hicolor/scalable/apps/yt-sub.svg` oraz wstawia bezwzględną ścieżkę do binarki w szablonie `yt-sub.desktop` (`@YT_SUB_BIN@` → ścieżka z `command -v yt-sub`) i kopiuje go do `~/.local/share/applications/`. Wpis uruchamia WezTerm (`wezterm start --class yt-sub -- yt-sub`) — wymagany do renderowania miniatur przez Kitty Graphics Protocol. `Terminal=false`, ponieważ terminal jest spawnowany ręcznie. Odinstalowanie: `./install.sh --remove`.
+- **Lokalizacje plików runtime (XDG Base Directory):** ścieżki rozwiązuje moduł `yt_sub.paths` na podstawie zmiennych `XDG_*_HOME` (z fallbackiem na standardowe katalogi):
+  - `~/.config/yt-sub/`: `config.json`, `credentials.pickle`, `client_secret_*.json` (nazwa pliku jest globowana, nie zhardkodowana)
+  - `~/.local/share/yt-sub/`: `youtube_monitor.db`
+  - `~/.cache/yt-sub/`: `thumb_cache/`, `sync_error.log`
+
+  Dzięki temu aplikacja działa niezależnie od katalogu uruchomienia. `install.sh` przy pierwszej instalacji migruje istniejące pliki z katalogu projektu do tych lokalizacji (kopiuje, nie nadpisuje, jeśli plik docelowy już istnieje).
 
 ## 3. Struktura Projektu
 Layout `src/` z pakietem `yt_sub` (instalowany przez `hatchling`, entry point `yt-sub`).
@@ -24,21 +31,21 @@ Layout `src/` z pakietem `yt_sub` (instalowany przez `hatchling`, entry point `y
 │   ├── database.py        # Klasa Database (SQLite)
 │   ├── youtube_client.py  # Klasa YouTubeClient (API, OAuth, pobieranie)
 │   ├── tui.py             # Klasa YouTubeTUI (curses, dwa panele)
-│   └── models.py          # Dataclasses: Channel, Video
+│   ├── models.py          # Dataclasses: Channel, Video
+│   └── paths.py           # Resolver ścieżek XDG (config / data / cache)
 ├── docs/
 │   ├── SPECIFICATION.md   # ten plik
 │   ├── TODO.md            # backlog propozycji funkcji
 │   ├── GEMINI.md
 │   └── audits/            # historyczne audyty kodu
+├── icons/                 # 6 propozycji ikon (SVG); yt-sub.svg = aktywna
+├── yt-sub.desktop         # Desktop Entry instalowany do ~/.local/share/applications/
+├── install.sh             # Instaluje pakiet jako uv tool + .desktop + ikona
 ├── pyproject.toml         # metadata projektu, definicja entry pointu
 ├── uv.lock
 ├── CLAUDE.md              # instrukcje dla asystenta
 ├── README.md
-├── config.json            # opcjonalna konfiguracja użytkownika
-├── credentials.pickle     # token OAuth 2.0 (auto, gitignored)
-├── youtube_monitor.db     # SQLite (auto, gitignored)
-├── sync_error.log         # log błędów sync (auto, gitignored)
-└── .thumb_cache/          # cache miniatur (auto, gitignored)
+└── (pliki runtime trafiają do katalogów XDG — patrz niżej)
 ```
 
 Importy wewnątrz pakietu są relatywne (`from .models import Video`).
@@ -64,7 +71,7 @@ Schematy tabel są tworzone przy każdym uruchomieniu (`CREATE TABLE IF NOT EXIS
    - Zapisz nowe filmy w bazie danych używając `ON CONFLICT DO UPDATE`, co aktualizuje metadane (tytuł, czas trwania, statystyki, `last_synced`) i zachowuje status "Watch Later" (kolumna `watch_later` nie jest nadpisywana przy konflikcie).
    - Prześlij nowe filmy do działającego interfejsu TUI przez `sync_queue`.
    - Zaktualizuj datę ostatniej synchronizacji w `metadata`.
-3. Błędy synchronizacji są logowane do `sync_error.log` (z pełnym traceback).
+3. Błędy synchronizacji są logowane do `~/.cache/yt-sub/sync_error.log` (z pełnym traceback).
 
 #### Adaptacyjna wielkość paczek
 Dla każdego kanału `maxResults` obliczany jest wzorem:
@@ -133,7 +140,7 @@ Wyświetla:
 #### Miniatura
 - Renderowana przez **Kitty Terminal Graphics Protocol** (natywna grafika, nie ASCII).
 - Źródło: `maxresdefault.jpg` (1280×720) z fallbackiem do `thumbnail_url` z bazy.
-- Pliki cache: `.thumb_cache/{video_id}_max.jpg`.
+- Pliki cache: `~/.cache/yt-sub/thumb_cache/{video_id}_max.jpg`.
 - Rozmiar: obraz przeskalowany w PIL do szerokości `cols * cell_w_px` px (dopasowany do panelu), bez sztucznego rozciągania.
 - Pozycja: przypięty do dołu panelu; liczba wierszy obliczana przez `ceil(target_h_px / cell_h_px)` na podstawie faktycznego rozmiaru komórki z `TIOCGWINSZ`.
 - Centrowanie poziome: offset = `(pane_width - img_cols) // 2`.
@@ -166,7 +173,7 @@ Gdy wątek synchronizacji prześle nowe filmy:
 | `--sync-only` | Tylko synchronizacja danych, bez uruchamiania TUI |
 
 ## 7. Konfiguracja (`config.json`)
-Użytkownik może personalizować wygląd TUI poprzez edycję pliku `config.json`. Plik tworzony jest automatycznie z wartościami domyślnymi przy ustawieniu progu Shortów przez `S`. Jeśli plik nie istnieje, używane są wartości domyślne.
+Użytkownik może personalizować wygląd TUI poprzez edycję pliku `~/.config/yt-sub/config.json`. Plik tworzony jest automatycznie z wartościami domyślnymi przy ustawieniu progu Shortów przez `S`. Jeśli plik nie istnieje, używane są wartości domyślne.
 
 Struktura:
 ```json
@@ -192,3 +199,49 @@ Struktura:
 - `pane_split_ratio`: Proporcja podziału ekranu (lewa/prawa); domyślnie `0.5` (50/50).
 - `page_scroll_ratio`: Nieużywane bezpośrednio (PageUp/Down przewijają o `sh-2` linii).
 - `shorts_threshold_seconds`: Próg czasu (w sekundach) dla filtrowania Shortów; domyślnie `90`.
+
+## 8. Instalacja i Dystrybucja
+
+### 8.1. Instalacja deweloperska
+Z katalogu projektu:
+```bash
+uv run yt-sub          # uruchamia bez instalacji w venv projektu
+uv run python -m yt_sub # alternatywnie jako moduł
+```
+
+### 8.2. Instalacja desktopowa (`./install.sh`)
+Skrypt:
+1. Sprawdza obecność `uv` (wymagane) i `wezterm` (potrzebne do uruchomienia z menu, ostrzeżenie jeśli brak).
+2. `uv tool install --reinstall .` — instaluje pakiet jako globalne narzędzie uv. Tworzy symlink `~/.local/bin/yt-sub` → `~/.local/share/uv/tools/yt-sub/bin/yt-sub`.
+3. Kopiuje ikonę `icons/yt-sub.svg` do `~/.local/share/icons/hicolor/scalable/apps/yt-sub.svg`.
+4. Generuje `~/.local/share/applications/yt-sub.desktop` z szablonu `yt-sub.desktop`, zastępując placeholder `@YT_SUB_BIN@` rzeczywistą ścieżką binarki (z `command -v yt-sub`). Bezwzględna ścieżka eliminuje zależność od PATH środowiska Desktop Entry.
+5. Migruje istniejące pliki z katalogu projektu do XDG (jeśli plik docelowy nie istnieje):
+   - `config.json`, `credentials.pickle`, `client_secret_*.json` → `~/.config/yt-sub/`
+   - `youtube_monitor.db` → `~/.local/share/yt-sub/`
+6. Odświeża cache pulpitu: `update-desktop-database` i `gtk-update-icon-cache` (oba opcjonalne — wywołanie nie blokuje, jeśli nie ma narzędzia).
+
+Odinstalowanie: `./install.sh --remove` (usuwa pakiet uv, ikonę, wpis .desktop; nie kasuje plików w `~/.config/yt-sub/`, `~/.local/share/yt-sub/`, `~/.cache/yt-sub/`).
+
+### 8.3. Wpis Desktop Entry
+Plik `yt-sub.desktop` (szablon w repo, instalowany do `~/.local/share/applications/yt-sub.desktop`):
+```ini
+[Desktop Entry]
+Type=Application
+Name=yt-sub
+GenericName=YouTube Subscription Monitor
+Comment=Przegląd subskrypcji YouTube w terminalu
+TryExec=wezterm
+Exec=wezterm start --class yt-sub -- @YT_SUB_BIN@
+Icon=yt-sub
+Terminal=false
+Categories=AudioVideo;ConsoleOnly;
+Keywords=youtube;subscription;tui;video;subskrypcje;
+StartupWMClass=yt-sub
+StartupNotify=false
+```
+- `Terminal=false` — terminal jest spawnowany ręcznie przez `wezterm start`. Użycie `Terminal=true` zostawiałoby wybór terminala launcherowi pulpitu, co u użytkownika nie zadziałało.
+- `--class yt-sub` + `StartupWMClass=yt-sub` — okno WezTerm jest oznaczane klasą zgodną z .desktop, dzięki czemu menedżer okien grupuje je pod ikoną aplikacji w docku/taskbarze.
+- WezTerm jest wybrany, bo obsługuje **Kitty Graphics Protocol** wymagany do renderowania miniatur (alternatywy o tej samej zdolności: Kitty, Konsole, Ghostty).
+
+### 8.4. Ikony
+Katalog `icons/` zawiera 7 propozycji wizualnych (6 SVG + 1 PNG); aktywna jest skopiowana jako `icons/yt-sub.svg` (motyw terminala).
