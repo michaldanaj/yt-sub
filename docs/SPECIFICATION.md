@@ -11,7 +11,7 @@ Aplikacja służy do pobierania, przechowywania w lokalnej bazie danych i wyświ
 - **Interfejs:** TUI (Terminal User Interface) oparty na `curses`.
 - **Odtwarzacz:** Zewnętrzny odtwarzacz `mpv`.
 - **Synchronizacja w tle:** Wątek daemon (`threading`) komunikujący się z TUI przez `queue.Queue`.
-- **Instalacja desktopowa:** `install.sh` wykonuje `uv tool install .` (binary `yt-sub` w `~/.local/bin/`), kopiuje ikonę do `~/.local/share/icons/hicolor/scalable/apps/yt-sub.svg` oraz `yt-sub.desktop` do `~/.local/share/applications/`. Wpis ma `Terminal=true`, więc menu uruchamia aplikację w domyślnym terminalu użytkownika. Pełne wyświetlanie miniatur wymaga terminala z obsługą Kitty Graphics Protocol (Kitty, Konsole, WezTerm, Ghostty). Odinstalowanie: `./install.sh --remove`.
+- **Instalacja desktopowa:** `install.sh` wykonuje `uv tool install .` (binary `yt-sub` w `~/.local/bin/`), kopiuje ikonę do `~/.local/share/icons/hicolor/scalable/apps/yt-sub.svg` oraz wstawia bezwzględną ścieżkę do binarki w szablonie `yt-sub.desktop` (`@YT_SUB_BIN@` → ścieżka z `command -v yt-sub`) i kopiuje go do `~/.local/share/applications/`. Wpis uruchamia WezTerm (`wezterm start --class yt-sub -- yt-sub`) — wymagany do renderowania miniatur przez Kitty Graphics Protocol. `Terminal=false`, ponieważ terminal jest spawnowany ręcznie. Odinstalowanie: `./install.sh --remove`.
 
 ## 3. Struktura Projektu
 Layout `src/` z pakietem `yt_sub` (instalowany przez `hatchling`, entry point `yt-sub`).

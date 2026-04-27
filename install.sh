@@ -2,10 +2,8 @@
 # Instaluje lub aktualizuje aplikację yt-sub jako narzędzie uv oraz
 # rejestruje wpis w menu aplikacji (Desktop Entry).
 #
-# Uruchamiana z menu, aplikacja startuje w domyślnym terminalu
-# użytkownika (wpis ma Terminal=true). Do poprawnego wyświetlania
-# miniatur potrzebny jest terminal z obsługą Kitty Graphics Protocol
-# (Kitty, Konsole, WezTerm, Ghostty itp.).
+# Z menu aplikacja jest uruchamiana w nowym oknie WezTerm (terminal
+# z obsługą Kitty Graphics Protocol, wymaganego do miniatur).
 #
 # Użycie:
 #   ./install.sh            # instalacja lub aktualizacja
@@ -40,10 +38,15 @@ if [[ "${1:-}" == "--remove" ]]; then
     exit 0
 fi
 
-# --- Sprawdź uv ---
+# --- Sprawdź zależności ---
 if ! command -v uv &>/dev/null; then
     echo "Błąd: uv nie jest zainstalowane (https://docs.astral.sh/uv/)" >&2
     exit 1
+fi
+if ! command -v wezterm &>/dev/null; then
+    echo "Ostrzeżenie: wezterm nie znalezione w PATH. Wpis .desktop go" >&2
+    echo "  wymaga, więc uruchomienie z menu nie zadziała dopóki nie" >&2
+    echo "  zainstalujesz WezTerm (https://wezfurlong.org/wezterm/)." >&2
 fi
 
 # --- Instalacja / aktualizacja pakietu ---
@@ -62,9 +65,12 @@ cp "$ICON_SRC" "$ICON_DST"
 echo "  Ikona: $ICON_DST"
 
 # --- Wpis .desktop ---
+# Wstaw pełną ścieżkę do binarki yt-sub, żeby launcher menu nie zależał
+# od tego, czy ~/.local/bin jest w PATH środowiska Desktop Entry.
+YT_SUB_BIN="$(command -v yt-sub || echo "$HOME/.local/bin/yt-sub")"
 mkdir -p "$DESKTOP_DIR"
-cp "$DESKTOP_SRC" "$DESKTOP_DST"
-echo "  Desktop: $DESKTOP_DST"
+sed "s|@YT_SUB_BIN@|$YT_SUB_BIN|g" "$DESKTOP_SRC" > "$DESKTOP_DST"
+echo "  Desktop: $DESKTOP_DST (Exec → $YT_SUB_BIN)"
 
 # --- Odśwież cache pulpitu ---
 refresh_caches
