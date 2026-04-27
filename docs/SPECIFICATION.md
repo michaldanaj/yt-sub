@@ -153,7 +153,7 @@ Zawsze widoczny na dole ekranu. Tryby wyświetlania:
 - **Tryb wyszukiwania:** `SEARCH: <zapytanie>_` (pogrubiony).
 - **Synchronizacja w toku:** Dodatkowy segment `[SYNC: <wiadomość>]` z postępem.
 - **Bufor wejścia (liczba przed komendą):** Segment `:<bufor>`.
-- **Wersja aplikacji:** segment ` v<X.Y.Z> ` wyświetlany przy prawej krawędzi paska, w tym samym kolorze co separator `|` (`color_pair(9) | A_REVERSE`). Pomijany, jeśli zawartość po lewej stronie zajmuje całą dostępną szerokość (kontrola: `sw - len(label) > x_footer`).
+- **Wersja aplikacji:** segment ` v<X.Y.Z> ` dopisany jako ostatni element paska, oddzielony separatorem `|`. Renderowany w tym samym stylu co pozostałe segmenty (`A_REVERSE`).
 
 Podczas synchronizacji progress komunikaty przesyłane są przez `sync_queue` i wyświetlane w pasku statusu. Po zakończeniu synchronizacji wyświetlany jest toast z informacją o liczbie zaktualizowanych/dodanych filmów.
 
