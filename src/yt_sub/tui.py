@@ -38,6 +38,7 @@ class YouTubeTUI:
         db: Database,
         sync_queue: Optional[queue.Queue] = None,
         sync_starter: Optional[Callable[[], threading.Thread]] = None,
+        outbox_event: Optional[threading.Event] = None,
     ) -> None:
         """Initialises state from the pre-loaded video list.
 
@@ -50,6 +51,10 @@ class YouTubeTUI:
                 sync thread and returns it.  Used by ``r``/``Ctrl+R`` to
                 re-trigger sync without restarting the application.  When
                 ``None``, manual sync is disabled.
+            outbox_event: ``threading.Event`` shared with
+                :class:`~later_outbox.LaterOutboxWorker`; set after each
+                ``l``/``d`` toggle to wake the worker immediately.
+                ``None`` disables outbox signalling (no YouTube client available).
         """
         self.db = db
         self.videos = videos
@@ -69,6 +74,7 @@ class YouTubeTUI:
         self.is_syncing = False if sync_queue is None else True
         self.sync_progress = ""
         self._sync_starter = sync_starter
+        self._outbox_event = outbox_event
         self._thumb_kitty_cache: Dict[tuple, Any] = {}  # (video_id, cols, rows) -> bytes or None
 
     def _load_config(self) -> Dict[str, Any]:
@@ -109,7 +115,10 @@ class YouTubeTUI:
         
         # Status bar separator color: define as (Default, Red)
         # so that A_REVERSE results in (Red, Default) to match the rest of the bar
-        curses.init_pair(9, -1, 210) 
+        curses.init_pair(9, -1, 210)
+
+        # Errors indicator: white text on red background (no A_REVERSE needed)
+        curses.init_pair(10, 231, 196)
         
         # Selected pairs
         curses.init_pair(12, c["dot"], bg)
@@ -436,6 +445,81 @@ class YouTubeTUI:
                         self._safe_addstr(win, y, 0, w_line, curses.color_pair(8))
                         y += 1
 
+    def _draw_errors_view(self, stdscr: "curses.window") -> None:
+        """Renders a modal listing failed Later-sync outbox entries.
+
+        Shows each failed operation with its video title, channel, attempt count
+        and last error message.  Supports navigation and in-place retry/delete.
+        Closes automatically when the list becomes empty.
+
+        Keyboard shortcuts inside the modal:
+
+        - ``j`` / ``k`` / arrows — navigate.
+        - ``r`` — retry selected entry (reset to ``pending``).
+        - ``R`` — retry all failed entries.
+        - ``d`` — delete selected entry (discard the operation).
+        - ``ESC`` / ``E`` — close the modal.
+
+        Args:
+            stdscr: Root curses window.
+        """
+        sh, sw = stdscr.getmaxyx()
+        modal_w = min(sw - 4, 90)
+        selected_idx = 0
+
+        while True:
+            entries = self.db.get_failed_ops()
+            if not entries:
+                break
+
+            selected_idx = max(0, min(selected_idx, len(entries) - 1))
+            modal_h = min(len(entries) + 6, sh - 4)
+            y = max(0, (sh - modal_h) // 2)
+            x = max(0, (sw - modal_w) // 2)
+
+            win = curses.newwin(modal_h, modal_w, y, x)
+            win.box()
+            win.attron(curses.A_BOLD)
+            title = " Later Sync Errors "
+            self._safe_addstr(win, 0, (modal_w - len(title)) // 2, title)
+            win.attroff(curses.A_BOLD)
+
+            list_h = modal_h - 4
+            offset = max(0, selected_idx - list_h + 1)
+            for i, entry in enumerate(entries[offset:offset + list_h]):
+                row_idx = i + offset
+                action_label = "ADD   " if entry.action == "add" else "REMOVE"
+                title_part = entry.title[:28]
+                chan_part = entry.channel_title[:18]
+                err_part = (entry.last_error or "")[:30]
+                line = f" {action_label} {title_part:<28} — {chan_part:<18} ({entry.attempts}× {err_part})"
+                attr = curses.A_REVERSE if row_idx == selected_idx else 0
+                self._safe_addstr(win, i + 2, 1, line[:modal_w - 2], attr)
+
+            hint = " r:retry  R:retry all  d:delete  ESC/E:close "
+            self._safe_addstr(win, modal_h - 2, (modal_w - len(hint)) // 2, hint, curses.A_DIM)
+            win.refresh()
+
+            key = win.getch()
+            if key in (27, ord('E')):  # ESC or E
+                break
+            elif key in (ord('k'), curses.KEY_UP):
+                selected_idx = max(0, selected_idx - 1)
+            elif key in (ord('j'), curses.KEY_DOWN):
+                selected_idx = min(len(entries) - 1, selected_idx + 1)
+            elif key == ord('r'):
+                self.db.retry_op(entries[selected_idx].id)
+                if self._outbox_event:
+                    self._outbox_event.set()
+            elif key == ord('R'):
+                self.db.retry_all_failed()
+                if self._outbox_event:
+                    self._outbox_event.set()
+                selected_idx = 0
+            elif key == ord('d'):
+                self.db.delete_op(entries[selected_idx].id)
+                selected_idx = max(0, selected_idx - 1)
+
     def _draw_help_overlay(self, stdscr: "curses.window") -> None:
         """Renders a centred help overlay listing all keyboard shortcuts.
 
@@ -447,7 +531,7 @@ class YouTubeTUI:
         """
         """Renders a help overlay in the center of the screen."""
         sh, sw = stdscr.getmaxyx()
-        h, w = 23, 60
+        h, w = 24, 60
         y, x = (sh - h) // 2, (sw - w) // 2
 
         win = curses.newwin(h, w, y, x)
@@ -469,6 +553,7 @@ class YouTubeTUI:
             ("d", "Remove from Watch Later list"),
             ("y", "Yank (copy) video URL to clipboard"),
             ("a", "Channel statistics table"),
+            ("E", "Show failed Later sync errors"),
             ("r / Ctrl+R", "Refresh (manual sync)"),
             ("s", "Toggle Shorts visibility"),
             ("S", "Set Shorts threshold"),
@@ -629,6 +714,9 @@ class YouTubeTUI:
             seg(f" SEARCH: {self.filter_query}_ ", curses.A_REVERSE | curses.A_BOLD)
             sep()
         else:
+            if self.db.count_failed_ops() > 0:
+                seg(" [E]rrors ", curses.color_pair(10))
+                sep()
             seg(f"[q]uit "); sep()
             seg(f" [?] help "); sep()
             seg(f" [/] find "); sep()
@@ -699,7 +787,9 @@ class YouTubeTUI:
             v = self._get_selected_video()
             if v:
                 v.watch_later = True
-                self.db.update_watch_later(v.id, True)
+                self.db.update_watch_later_and_enqueue(v.id, True, "add")
+                if self._outbox_event:
+                    self._outbox_event.set()
                 self._show_message(stdscr, f"Added to Watch Later: {v.title[:30]}...")
                 self.display_items = self._get_display_list()
             self.input_buffer = ""
@@ -718,7 +808,9 @@ class YouTubeTUI:
             if v and v.watch_later:
                 prev_id = self.selected_id
                 v.watch_later = False
-                self.db.update_watch_later(v.id, False)
+                self.db.update_watch_later_and_enqueue(v.id, False, "remove")
+                if self._outbox_event:
+                    self._outbox_event.set()
                 self._show_message(stdscr, "Removed from Watch Later")
                 self.display_items = self._get_display_list()
                 self._reselect_nearest_visible(prev_id)
@@ -734,6 +826,11 @@ class YouTubeTUI:
             self._set_shorts_threshold(stdscr)
             self.display_items = self._get_display_list()
             self._reselect_nearest_visible(prev_id)
+            self.input_buffer = ""
+        elif key == ord('E'):
+            thumbnails.clear_kitty()
+            self._draw_errors_view(stdscr)
+            self._thumb_kitty_cache.clear()
             self.input_buffer = ""
         elif key == ord('a'):
             from .channels_stats import ChannelsStatsView, QUIT_SENTINEL
@@ -1063,6 +1160,7 @@ def start_tui(
     db: Database,
     sync_queue: Optional[queue.Queue] = None,
     sync_starter: Optional[Callable[[], threading.Thread]] = None,
+    outbox_event: Optional[threading.Event] = None,
 ) -> None:
     """Launches the TUI via :func:`curses.wrapper`.
 
@@ -1077,8 +1175,11 @@ def start_tui(
         sync_starter: Zero-argument callable that starts a new background sync
             thread; passed through to :class:`YouTubeTUI` for ``r``/``Ctrl+R``
             handling.  ``None`` disables manual sync.
+        outbox_event: ``threading.Event`` shared with
+            :class:`~later_outbox.LaterOutboxWorker`; set after each
+            ``l``/``d`` toggle.  ``None`` disables outbox signalling.
     """
     if not videos: videos = []
     os.environ.setdefault('TERM', 'xterm-256color')
     os.environ.setdefault('ESCDELAY', '25')
-    curses.wrapper(lambda stdscr: YouTubeTUI(videos, db, sync_queue, sync_starter).run(stdscr))
+    curses.wrapper(lambda stdscr: YouTubeTUI(videos, db, sync_queue, sync_starter, outbox_event).run(stdscr))
