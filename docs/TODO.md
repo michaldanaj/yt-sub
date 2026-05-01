@@ -78,7 +78,7 @@ ignorowane.
 
 Wyświetlenie statystyk kanałów w tabeli i możliwość ich sortowania
 
-## [ ] #10 Thumbnail jako opcja (mały)
+## [x] #10 Thumbnail jako opcja (mały)
 
 Skrót do usunięcia thumbnail z widoku i jako opcja w ustawieniach.
 

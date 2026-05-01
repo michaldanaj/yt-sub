@@ -60,6 +60,7 @@ class YouTubeTUI:
         self.filter_channel_id = None
         self.filter_query = ""
         self.config = self._load_config()
+        self.show_thumbnails: bool = self.config["ui"].get("show_thumbnails", True)
         self.display_items = self._get_display_list()
         self.input_buffer = ""
         self.is_searching = False
@@ -85,7 +86,7 @@ class YouTubeTUI:
                 pass
         return {
             "colors": {"header": 103, "dot": 210, "duration": 150, "channel": 117, "title": 231, "selected_bg": 238, "detail_label": 103, "detail_value": 231},
-            "ui": {"pane_split_ratio": 0.5, "page_scroll_ratio": 0.8, "shorts_threshold_seconds": 90, "stats_months": 3},
+            "ui": {"pane_split_ratio": 0.5, "page_scroll_ratio": 0.8, "shorts_threshold_seconds": 90, "stats_months": 3, "show_thumbnails": True},
             "youtube": {"later_playlist_name": "Later", "later_playlist_id": ""},
         }
 
@@ -446,7 +447,7 @@ class YouTubeTUI:
         """
         """Renders a help overlay in the center of the screen."""
         sh, sw = stdscr.getmaxyx()
-        h, w = 22, 60
+        h, w = 23, 60
         y, x = (sh - h) // 2, (sw - w) // 2
 
         win = curses.newwin(h, w, y, x)
@@ -471,6 +472,7 @@ class YouTubeTUI:
             ("r / Ctrl+R", "Refresh (manual sync)"),
             ("s", "Toggle Shorts visibility"),
             ("S", "Set Shorts threshold"),
+            ("t", "Toggle thumbnail visibility"),
             ("b", "Toggle filter by current channel"),
             ("Ctrl+f / b", "Page down / up"),
             ("?", "Toggle this help screen"),
@@ -594,6 +596,8 @@ class YouTubeTUI:
         wl_part = f"[l]ater [L]{wl_label} ({wl_count})"
         shorts_label = "HORTS" if not self.show_shorts else "horts"
         shorts_part = f"[s]{shorts_label} thre[S]hold ({threshold}s)"
+        thumb_label = "HUMB" if self.show_thumbnails else "humb"
+        thumb_part = f"[t]{thumb_label}"
 
         chan_filter = "Filter: OFF"
         if self.filter_channel_id:
@@ -633,6 +637,7 @@ class YouTubeTUI:
             seg(f" {wl_part} "); sep()
             seg(f" [d]el "); sep()
             seg(f" {shorts_part} "); sep()
+            seg(f" {thumb_part} "); sep()
             seg(f" [b]y channel "); sep()
             seg(f" {chan_filter}{search_status}")
 
@@ -742,6 +747,14 @@ class YouTubeTUI:
                 self.display_items = self._get_display_list()
                 self._reselect_nearest_visible(prev_id)
             self._thumb_kitty_cache.clear()
+            self.input_buffer = ""
+        elif key == ord('t'):
+            self.show_thumbnails = not self.show_thumbnails
+            self.config["ui"]["show_thumbnails"] = self.show_thumbnails
+            with open(CONFIG_PATH, "w") as f:
+                json.dump(self.config, f, indent=4)
+            if not self.show_thumbnails:
+                thumbnails.clear_kitty()
             self.input_buffer = ""
         elif key in (ord('r'), 18):  # 18 = Ctrl+R
             if self._sync_starter and not self.is_syncing:
@@ -938,6 +951,8 @@ class YouTubeTUI:
                 _target_h_px = round(_target_w_px * 9 / 16)   # maxresdefault is 16:9
                 thumb_rows = max(0, math.ceil(_target_h_px / _cell_h))
                 if sh - 1 - thumb_rows < 8:
+                    thumb_rows = 0
+                if not self.show_thumbnails:
                     thumb_rows = 0
 
                 if left_win is None:

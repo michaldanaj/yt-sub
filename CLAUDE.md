@@ -33,6 +33,8 @@ Znajdź specyfikację w tym pliku przy implementacji nowej. Zrób gałąź git, 
 
 Stwórz:
 
+- Gałąź git o nazwie `feature-NNN-feature-name`, gdzie `NNN` to numer z TODO
+  (np. `feature-004-channel-info`)
 - Nowy katalog `YYYY-MM-DD-NNN-feature-name` w docs/ dla prac nad tym feature,
   gdzie `NNN` to numer z TODO (np. `2026-05-01-004-channel-info`)
 - W tym katalogu:
