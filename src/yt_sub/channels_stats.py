@@ -243,10 +243,20 @@ class ChannelsStatsView:
                 self._ensure_visible(stdscr)
 
             elif key in (ord("h"), curses.KEY_LEFT):
-                self._change_sort_col(-1)
+                if self._last_key in (ord("h"), curses.KEY_LEFT):
+                    self._sort_asc = not self._sort_asc
+                    self._selected = 0
+                    self._top_line = 0
+                else:
+                    self._change_sort_col(-1)
 
             elif key in (ord("l"), curses.KEY_RIGHT):
-                self._change_sort_col(1)
+                if self._last_key in (ord("l"), curses.KEY_RIGHT):
+                    self._sort_asc = not self._sort_asc
+                    self._selected = 0
+                    self._top_line = 0
+                else:
+                    self._change_sort_col(1)
 
             elif key == ord("m"):
                 self._prompt_months(stdscr)
