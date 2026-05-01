@@ -2,9 +2,9 @@ import sqlite3
 import statistics
 import threading
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 from datetime import datetime, timedelta
-from .models import Channel, Video, ChannelStatRow
+from .models import Channel, Video, ChannelStatRow, OutboxEntry
 from . import paths
 
 
@@ -109,6 +109,23 @@ class Database:
                 video_id TEXT PRIMARY KEY,
                 playlist_item_id TEXT NOT NULL
             )
+        ''')
+
+        # Outbox queue for immediate Later sync operations
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS later_sync_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                video_id TEXT NOT NULL,
+                action TEXT NOT NULL CHECK(action IN ('add', 'remove')),
+                created_at TEXT NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT,
+                status TEXT NOT NULL DEFAULT 'pending'
+            )
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_later_sync_queue_created
+            ON later_sync_queue(created_at)
         ''')
 
         self.conn.commit()
@@ -364,6 +381,233 @@ class Database:
             ))
 
         return rows
+
+    def update_watch_later_and_enqueue(
+        self, video_id: str, status: bool, action: Literal["add", "remove"]
+    ) -> None:
+        """Atomically updates the watch-later flag and enqueues an outbox operation.
+
+        Performs smart deduplication on the outbox before inserting:
+
+        - If the last ``pending`` entry for *video_id* has the **opposite** action,
+          that entry is deleted (no-op — the changes cancel out).
+        - If the last ``pending`` entry has the **same** action, no new entry is
+          inserted (idempotent).
+        - Otherwise a new entry is appended.
+
+        ``failed`` entries are ignored during dedup — they remain until the user
+        retries or discards them in the Errors view.
+
+        Args:
+            video_id: YouTube video ID to update.
+            status: New value for the ``watch_later`` flag.
+            action: ``'add'`` or ``'remove'`` — what to propagate to YouTube.
+        """
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "UPDATE videos SET watch_later = ? WHERE id = ?",
+                (1 if status else 0, video_id),
+            )
+            # Dedup: find last pending entry for this video_id
+            cursor.execute(
+                "SELECT id, action FROM later_sync_queue "
+                "WHERE video_id = ? AND status = 'pending' "
+                "ORDER BY id DESC LIMIT 1",
+                (video_id,),
+            )
+            row = cursor.fetchone()
+            if row is not None:
+                existing_id, existing_action = row
+                if existing_action != action:
+                    # Opposite action — cancel both
+                    cursor.execute("DELETE FROM later_sync_queue WHERE id = ?", (existing_id,))
+                # Same action — no new insert needed
+            else:
+                cursor.execute(
+                    "INSERT INTO later_sync_queue (video_id, action, created_at) VALUES (?, ?, ?)",
+                    (video_id, action, datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")),
+                )
+            self.conn.commit()
+
+    def get_next_pending_op(self) -> Optional[OutboxEntry]:
+        """Returns the oldest pending outbox entry, or ``None`` if the queue is empty.
+
+        Returns:
+            The earliest-created ``OutboxEntry`` with ``status='pending'``,
+            or ``None`` when no such entry exists.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT id, video_id, action, created_at, attempts, last_error, status "
+            "FROM later_sync_queue WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1"
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return OutboxEntry(
+            id=row[0], video_id=row[1], action=row[2], created_at=row[3],
+            attempts=row[4], last_error=row[5], status=row[6],
+        )
+
+    def increment_op_attempts(self, op_id: int, error: str) -> int:
+        """Increments the attempt counter and records the last error message.
+
+        Does not change ``status`` — the caller decides when to mark as failed.
+
+        Args:
+            op_id: Row ID of the outbox entry.
+            error: Human-readable description of the failure.
+
+        Returns:
+            New value of ``attempts`` after the increment.
+        """
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "UPDATE later_sync_queue SET attempts = attempts + 1, last_error = ? WHERE id = ?",
+                (error, op_id),
+            )
+            self.conn.commit()
+            cursor.execute("SELECT attempts FROM later_sync_queue WHERE id = ?", (op_id,))
+            row = cursor.fetchone()
+            return row[0] if row else 0
+
+    def mark_op_failed(self, op_id: int) -> None:
+        """Sets ``status='failed'`` on the given outbox entry.
+
+        Args:
+            op_id: Row ID of the outbox entry to mark as permanently failed.
+        """
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "UPDATE later_sync_queue SET status = 'failed' WHERE id = ?", (op_id,)
+            )
+            self.conn.commit()
+
+    def delete_op(self, op_id: int) -> None:
+        """Removes an outbox entry by ID.
+
+        Args:
+            op_id: Row ID of the entry to delete.
+        """
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM later_sync_queue WHERE id = ?", (op_id,))
+            self.conn.commit()
+
+    def get_failed_ops(self) -> List[OutboxEntry]:
+        """Returns all ``failed`` outbox entries with video title and channel resolved.
+
+        Performs a LEFT JOIN with the ``videos`` table to resolve human-readable
+        labels.  Falls back to ``video_id`` as title and ``''`` as channel when
+        the video is not present locally.
+
+        Returns:
+            List of :class:`OutboxEntry` objects ordered by ``created_at`` ascending.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT q.id, q.video_id, q.action, q.created_at, q.attempts, q.last_error, q.status, "
+            "       COALESCE(v.title, q.video_id), COALESCE(v.channel_title, '') "
+            "FROM later_sync_queue q "
+            "LEFT JOIN videos v ON v.id = q.video_id "
+            "WHERE q.status = 'failed' ORDER BY q.created_at ASC"
+        )
+        return [
+            OutboxEntry(
+                id=row[0], video_id=row[1], action=row[2], created_at=row[3],
+                attempts=row[4], last_error=row[5], status=row[6],
+                title=row[7], channel_title=row[8],
+            )
+            for row in cursor.fetchall()
+        ]
+
+    def count_failed_ops(self) -> int:
+        """Returns the number of outbox entries with ``status='failed'``.
+
+        Returns:
+            Non-negative integer count.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM later_sync_queue WHERE status = 'failed'")
+        row = cursor.fetchone()
+        return row[0] if row else 0
+
+    def retry_op(self, op_id: int) -> None:
+        """Resets a ``failed`` entry back to ``pending`` so the worker retries it.
+
+        Args:
+            op_id: Row ID of the entry to reset.
+        """
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "UPDATE later_sync_queue SET status = 'pending', attempts = 0, last_error = NULL "
+                "WHERE id = ?",
+                (op_id,),
+            )
+            self.conn.commit()
+
+    def retry_all_failed(self) -> int:
+        """Resets all ``failed`` entries back to ``pending``.
+
+        Returns:
+            Number of rows updated.
+        """
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "UPDATE later_sync_queue SET status = 'pending', attempts = 0, last_error = NULL "
+                "WHERE status = 'failed'"
+            )
+            self.conn.commit()
+            return cursor.rowcount
+
+    def get_snapshot_item_id(self, video_id: str) -> Optional[str]:
+        """Returns the YouTube ``playlistItem.id`` for *video_id* from the snapshot.
+
+        Args:
+            video_id: YouTube video ID to look up.
+
+        Returns:
+            The ``playlist_item_id`` string, or ``None`` if not in snapshot.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT playlist_item_id FROM later_sync_snapshot WHERE video_id = ?", (video_id,)
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+    def update_snapshot_add(self, video_id: str, playlist_item_id: str) -> None:
+        """Inserts or replaces an entry in the Later sync snapshot.
+
+        Args:
+            video_id: YouTube video ID.
+            playlist_item_id: Corresponding ``playlistItem.id`` on YouTube.
+        """
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "INSERT OR REPLACE INTO later_sync_snapshot (video_id, playlist_item_id) VALUES (?, ?)",
+                (video_id, playlist_item_id),
+            )
+            self.conn.commit()
+
+    def update_snapshot_remove(self, video_id: str) -> None:
+        """Removes a video from the Later sync snapshot.
+
+        Args:
+            video_id: YouTube video ID to remove from the snapshot.
+        """
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "DELETE FROM later_sync_snapshot WHERE video_id = ?", (video_id,)
+            )
+            self.conn.commit()
 
     def close(self) -> None:
         """Closes the underlying SQLite connection."""

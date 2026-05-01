@@ -110,6 +110,34 @@ class Video:
 
 
 @dataclass
+class OutboxEntry:
+    """A pending or failed operation in the Later sync outbox queue.
+
+    Attributes:
+        id: Auto-incremented row ID.
+        video_id: YouTube video ID targeted by this operation.
+        action: Either ``'add'`` or ``'remove'``.
+        created_at: ISO 8601 timestamp of when the operation was enqueued.
+        attempts: Number of API call attempts made so far.
+        last_error: Human-readable description of the last failure, or ``None``.
+        status: Either ``'pending'`` (will be retried) or ``'failed'`` (gave up).
+        title: Video title resolved via JOIN with ``videos`` table; falls back
+            to ``video_id`` when the video is not in the local database.
+        channel_title: Channel name resolved the same way; empty string as fallback.
+    """
+
+    id: int
+    video_id: str
+    action: str
+    created_at: str
+    attempts: int
+    last_error: Optional[str]
+    status: str
+    title: str = ""
+    channel_title: str = ""
+
+
+@dataclass
 class ChannelStatRow:
     """Aggregated statistics for a single channel over a given period.
 
