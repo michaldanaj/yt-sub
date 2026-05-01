@@ -1,7 +1,7 @@
 W aplikacji yt-viewer podoba mi się kolor i ta kropeczka która przechodzi jako
 kursor.
 
-## Synchronizacja listy Later z Youtube
+## [x] Synchronizacja listy Later z Youtube
 
 - Lista Later z yt-subs może być synchronizowana z YouTube
 - Nazwa listy na YouTube jest konfigurowalna. Jeśli nie istnieje, utworzenie jej
@@ -9,7 +9,7 @@ kursor.
 - Algorytm synchronizacji musi uwzględniać możliwość dodania lub usuwania filmu
   poza aplikacją i odpowiednio synchronizować zmiany lokalnie
 
-## Natychmiastowy sync Later przy lokalnej zmianie
+## [ ] Natychmiastowy sync Later przy lokalnej zmianie
 
 Gdy użytkownik dodaje (`l`) lub usuwa (`d` z widoku Later) film z lokalnej listy
 Later, zmiana powinna być od razu propagowana do playlisty na YouTube (bez
@@ -18,14 +18,14 @@ czekania na pełny sync przy starcie). Wywołanie API w tle, żeby nie blokować
 Uwaga: wymaga dostępu do `YouTubeClient` i snapshootu z poziomu obsługi klawisza
 w TUI — warto ocenić czy nie psuje architektury za bardzo zanim się implementuje.
 
-## Przeskakiwanie
+## [x] Przeskakiwanie
 
 Przeskakiwanie wielu linii, gdy data jest po drodze. Propozycja, że liczba linii
 do przeskoczenia mówi o liczbie linii na ekranie, a nie o liczbie pozycji listy.
 Jeśli linią do przeskoczenia jest linia z datą, a nie filmem, kursor powinien
 ustawić się na pierwszej pozycji po dacie.
 
-## Informacje o kanale
+## [ ] Informacje o kanale
 
 Osobny view z informacjami o wybranym kanale i możliwością wykonywania działań
 na nim.
@@ -52,17 +52,17 @@ historii
 Przejście do listy filmów z tego kanału, w standardowym widoku listy filmów z
 filtrem.
 
-## Ukrywanie kanałów
+## [ ] Ukrywanie kanałów
 
 Możliwość ukrywania z listy filmów niektórych kanałów, ale pozostawienie ich
 jako zasubsrybowane. Dodać taką informację do formatki z info o kanale i
 możliwość edycji tego.
 
-## Ściąganie za wybrany okres z gui dla wszystkich kanałów
+## [ ] Ściąganie za wybrany okres z gui dla wszystkich kanałów
 
-## Ściąganie za wybrany okres z gui dla wybranego kanału
+## [ ] Ściąganie za wybrany okres z gui dla wybranego kanału
 
-## Odświeżenie zawartości (ręczna synchronizacja)
+## [ ] Odświeżenie zawartości (ręczna synchronizacja)
 
 Skrót klawiszowy `r` / `Ctrl+R` uruchamia pełną synchronizację na żądanie,
 bez potrzeby restartu aplikacji. Synchronizacja obejmuje:
@@ -74,31 +74,31 @@ Sync odbywa się w tle — TUI pozostaje responsywne, pasek statusu pokazuje
 postęp i wynik. Jeśli sync już trwa, ponowne wciśnięcie `r`/`Ctrl+R` jest
 ignorowane.
 
-## Zestawienie kanałów ze statystykami
+## [ ] Zestawienie kanałów ze statystykami
 
 Wyświetlenie statystyk kanałów w tabeli i możliwość ich sortowania
 
-## Thumbnail jako opcja
+## [ ] Thumbnail jako opcja
 
 Skrót do usunięcia thumbnail z widoku i jako opcja w ustawieniach.
 
-## Zmiana nazwy aplikacji
+## [ ] Zmiana nazwy aplikacji
 
 Zmiana nazwy na yt-subs. W instalatorze zmienić.
 
-## Obejrzane (?)
+## [ ] Obejrzane (?)
 
 Dodać tak jak w kliencie pocztowym, że po przejechaniu przez wpis i zatrzymaniu
 się na nim na czas przeczytania (np. 1s), zaznaczy się jakoś jako zapoznane.
 
 Zastanowić się czy w ogóle jest sens tej funkcjonalności.
 
-## Zaznaczenie nowych
+## [ ] Zaznaczenie nowych
 
 Nowe filmy które pojawiły się od ostatniego przeglądania jakoś powinny być
 odznaczone. Żeby nie kolorować ich, może jakąś linią?
 
-## Wywołanie streszczenia
+## [ ] Wywołanie streszczenia
 
 Dla wybranego filmu chciałbym zrobić automatyczną notatkę przez llm-a z
 wykorzystaniem aplikacji do transkrypcji. Powinno być wywołane gui z
@@ -107,7 +107,7 @@ wypełnieniem pola linku.
 Z poziomu aplikacji powinna być możliwość przejrzenia do jakich filmów notatki
 zostały zapisane.
 
-## Konfiguracja
+## [ ] Konfiguracja
 
 Jeśli jeszcze nie jest to zrobione, aplikacja powinna instalować się w systemie
 zachowując miejsca domyślne konfiguracji i bazy danych. Ścieżki te powinny być
@@ -117,16 +117,16 @@ konfigurowalne w konfiguracji.
 - Dać komentarze w pliku z konfiguracją.
 - Opisać konfigurację w podręczniku użytkownika
 
-## Podręcznik użytkownika
+## [ ] Podręcznik użytkownika
 
 Napisać i utrzymywać.
 
-## Info o odtwarzaniu
+## [ ] Info o odtwarzaniu
 
 dodać info, że uruchamia się odtwarzanie, bo teraz nie wiadomo tego. I najlepiej
 jeszcze uruchomić je jako nieblokujące.
 
-## Gdzie thumbnails
+## [ ] Gdzie thumbnails
 
 Rozważyć przeniesienie ich z cache do katalogu z bazą danych, albo wręcz do bazy
 danych.

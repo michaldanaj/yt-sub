@@ -33,6 +33,7 @@ Layout `src/` z pakietem `yt_sub` (instalowany przez `hatchling`, entry point `y
 │   ├── tui.py             # Klasa YouTubeTUI (curses, dwa panele) — orkiestrator pętli
 │   ├── thumbnails.py      # Pobieranie + Kitty Graphics Protocol (state-light)
 │   ├── actions.py         # mpv, xclip/wl-copy, xdg-open
+│   ├── later_sync.py      # Two-way sync listy Later z playlistą YouTube
 │   ├── models.py          # Dataclasses: Channel, Video
 │   └── paths.py           # Resolver ścieżek XDG (config / data / cache)
 ├── docs/
@@ -57,6 +58,14 @@ Aplikacja przechowuje pełne informacje dostępne przez API:
 - **Tabela `channels`**: ID, tytuł, opis, custom URL, data publikacji kanału, URL miniatury, statystyki (widoki, subskrypcje, liczba filmów), ID playlisty uploads, data ostatniego filmu (`latest_video_date`), surowy JSON.
 - **Tabela `videos`**: ID, ID kanału, tytuł, opis, data publikacji, czas trwania (format `H:MM:SS` lub `M:SS` z prawostronnym wyrównaniem do 7 znaków), URL miniatury, statystyki (widoki, lajki, komentarze), tytuł kanału, status "Watch Later" (`watch_later`), data ostatniej synchronizacji (`last_synced`), surowy JSON.
 - **Tabela `metadata`**: Przechowuje datę ostatniej synchronizacji (klucz `last_update`).
+- **Tabela `later_sync_snapshot`**: Snapshot poprzedniej synchronizacji listy Later z YouTube — słownik `{video_id: playlist_item_id}`. Przy zapisie nowego snapshotu tabela jest czyszczona i wypełniana od nowa w jednej transakcji (atomowo).
+
+```sql
+CREATE TABLE IF NOT EXISTS later_sync_snapshot (
+    video_id TEXT PRIMARY KEY,
+    playlist_item_id TEXT NOT NULL
+);
+```
 
 Schematy tabel są tworzone przy każdym uruchomieniu (`CREATE TABLE IF NOT EXISTS`). Istniejące bazy danych są migrowane przez `ALTER TABLE ADD COLUMN` dla brakujących kolumn (`watch_later`, `last_synced`).
 
@@ -113,6 +122,8 @@ Filmy pogrupowane nagłówkami dat w formacie `--- YYYY-MM-DD ---`.
 | `q` | Wyjście z aplikacji |
 
 **Coalescing trzymanego klawisza nawigacyjnego:** w pętli głównej, po przeczytaniu pierwszego klawisza ze zbioru `{KEY_UP, KEY_DOWN, j, k, J, K, KEY_NPAGE, KEY_PPAGE}`, włączany jest `nodelay(True)` i drenowane są wszystkie kolejne wystąpienia tego samego klawisza z bufora curses. Liczba przebranych powtórzeń jest dodawana do `count` przekazywanego do `_handle_key`. Bez tego OS-owy autorepeat (~30 Hz) wypełnia bufor wejścia szybciej niż pętla zdąży narysować, a po puszczeniu klawisza lista przewijała się jeszcze przez sekundę. Klawisze nie-nawigacyjne (toggle filtrów, akcje) nie są łączone — każde naciśnięcie pozostaje oddzielnym zdarzeniem.
+
+**Date-snap dla `j`/`k`/PageDown:** zaznaczenie zawsze ląduje na elemencie będącym filmem, nigdy na nagłówku daty. Przy ruchu `[n]j`/`[n]k` pozycja docelowa obliczana jest w przestrzeni linii ekranowych (nagłówki daty liczą się jako linie), a następnie, jeśli wskazuje na nagłówek, następuje snap do pierwszego **następnego** elementu-filmu (tj. w kierunku rosnących indeksów). Snap jest zawsze do przodu — nawet przy ruchu `k` w górę, gdy kursor wylądowałby na nagłówku, przesuwa się on do pierwszego filmu poniżej tego nagłówka. PageDown zachowuje tę samą zasadę dla wyznaczonej pozycji docelowej. PageUp korzysta z analogicznego snap-in-place już istniejącego w normalnej nawigacji. Ruch `j`/`k` bez licznika (count=1) zachowuje się jak dotychczas — pomija nagłówki przechodząc do sąsiedniego filmu.
 
 **Tryb live search (`/`):**
 - Po wciśnięciu `/` interfejs wchodzi w tryb wyszukiwania.
@@ -175,6 +186,61 @@ Gdy wątek synchronizacji prześle nowe filmy:
 4. Zaznaczenie jest przywracane na ten sam film (po ID).
 5. Wyświetlany jest toast z liczbą zaktualizowanych elementów.
 
+### 5.3. Synchronizacja listy Later z YouTube (two-way sync)
+
+Moduł `later_sync.py` realizuje dwukierunkową synchronizację lokalnego stanu `watch_later` z dedykowaną playlistą na YouTube. Synchronizacja uruchamiana jest w tle przy starcie aplikacji, po zakończeniu podstawowego sync filmów.
+
+#### Pojęcia
+
+| Symbol | Opis |
+|--------|------|
+| `S` | Snapshot — `{video_id: playlistItem_id}` z poprzedniej synchronizacji (tabela `later_sync_snapshot`) |
+| `Y` | Aktualny zbiór `{video_id: playlistItem_id}` z playlisty YouTube, odfiltrowany do filmów obecnych w lokalnej bazie |
+| `L` | Zbiór `video_id` z `watch_later=True` w lokalnej bazie |
+
+#### Algorytm
+
+```
+1. Załaduj snapshot S z tabeli later_sync_snapshot.
+2. Pobierz Y z YouTube API (playlistItems.list, paginacja); odfiltruj ID nieznane lokalnie.
+3. Załaduj L z bazy.
+
+4. Oblicz różnice:
+   yt_added     = Y - S  → dodane na YT od ostatniego sync
+   yt_removed   = S - Y  → usunięte na YT od ostatniego sync
+   local_added  = L - S  → dodane lokalnie od ostatniego sync
+   local_removed= S - L  → usunięte lokalnie od ostatniego sync
+
+5. Zaaplikuj zmiany (błędy są zbierane, przetwarzanie kontynuowane):
+   for id in yt_added:      db.update_watch_later(id, True)
+   for id in yt_removed:    db.update_watch_later(id, False)
+   for id in local_added:   item_id = yt.add_to_playlist(playlist_id, id)
+   for id in local_removed: yt.remove_from_playlist(S[id])
+
+6. Zapisz nowy snapshot (Y + local_added; local_removed są nieobecne).
+```
+
+Pierwsza synchronizacja (S pusty): `yt_added = Y` i `local_added = L` — wynik to pełne połączenie obu zbiorów. Filmy nieznane lokalnie (w Y, ale nie w bazie) pozostają na playliście YouTube bez zmian i nie są importowane.
+
+#### Metody YouTube API (`youtube_client.py`)
+
+| Metoda | Opis |
+|--------|------|
+| `find_or_create_playlist(name)` | Szuka playlisty po nazwie (paginacja); tworzy jeśli nie istnieje. Zwraca `playlist_id`. |
+| `get_playlist_items(playlist_id)` | Zwraca `{video_id: playlistItem_id}` dla całej playlisty (paginacja). |
+| `add_to_playlist(playlist_id, video_id)` | Dodaje film; zwraca `playlistItem_id`. |
+| `remove_from_playlist(playlist_item_id)` | Usuwa wpis po `playlistItem_id`. |
+
+#### Integracja z TUI
+
+Wątek sync wysyła do `sync_queue` wiadomość `{"type": "later_sync_done", "result": SyncResult}`. TUI wyświetla podsumowanie w pasku statusu (np. `"Later: +2 lokalnie, +1 na YT"`) i odświeża `display_items` (mogły zmienić się flagi `watch_later`).
+
+`SyncResult` to dataclass z polami: `added_locally`, `removed_locally`, `added_to_yt`, `removed_from_yt`, `errors: list[str]`.
+
+#### Obsługa błędów
+
+Błąd przy konkretnej operacji (np. nieudane dodanie jednego filmu) jest dołączany do `SyncResult.errors`, pozostałe operacje są kontynuowane. Jeśli całkowity fetch YouTube nie powiedzie się, sync jest pomijany (snapshot bez zmian). Błędy logowane są do `~/.cache/yt-sub/sync_error.log`.
+
 ## 6. Argumenty Wiersza Poleceń
 | Argument | Opis |
 |----------|------|
@@ -206,6 +272,10 @@ Struktura:
         "pane_split_ratio": 0.5,
         "page_scroll_ratio": 0.8,
         "shorts_threshold_seconds": 90
+    },
+    "youtube": {
+        "later_playlist_name": "Later",
+        "later_playlist_id": ""
     }
 }
 ```
@@ -213,6 +283,8 @@ Struktura:
 - `pane_split_ratio`: Proporcja podziału ekranu (lewa/prawa); domyślnie `0.5` (50/50).
 - `page_scroll_ratio`: Nieużywane bezpośrednio (PageUp/Down przewijają o `sh-2` linii).
 - `shorts_threshold_seconds`: Próg czasu (w sekundach) dla filtrowania Shortów; domyślnie `90`.
+- `later_playlist_name`: Nazwa playlisty na YouTube używanej jako lista Later; domyślnie `"Later"`. Jeśli playlista o tej nazwie nie istnieje, jest tworzona przy pierwszej synchronizacji.
+- `later_playlist_id`: ID playlisty YouTube (np. `PLxxxxx`). Uzupełniane automatycznie po odnalezieniu lub utworzeniu playlisty i zapisywane z powrotem do `config.json`. Jeśli puste, aplikacja szuka po nazwie (`later_playlist_name`).
 
 ## 8. Instalacja i Dystrybucja
 

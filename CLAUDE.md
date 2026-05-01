@@ -23,6 +23,8 @@ Jeśli pracujemy nad nowym feature, kroki taki:
 * Stworzenie specyfikacji pod feature (patrz Nowy feature poniżej)
 * Akceptacja specyfikacji przez człowieka
 * Wykonanie implementacji
+* Odznaczenie wykonanego feature w spec
+* Update SPECIFICATION.md
 
 # Nowy feature
 
