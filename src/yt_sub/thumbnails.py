@@ -281,6 +281,18 @@ def encode_kitty(video: Video, cols: int, rows: int,
     return None
 
 
+def clear_kitty() -> None:
+    """Sends a Kitty Graphics Protocol delete-all command to the terminal.
+
+    Removes every image currently displayed by the terminal, leaving the
+    cell grid intact.  Call this before handing the screen to a non-Kitty
+    renderer (e.g. a full-screen overlay or a different TUI view) so that
+    ghost thumbnails do not bleed through.
+    """
+    sys.stdout.buffer.write(b'\033_Ga=d,d=A\033\\')
+    sys.stdout.buffer.flush()
+
+
 def draw_kitty(abs_row: int, abs_col: int, cols: int, rows: int,
                video: Video, cell_w: int, cell_h: int,
                cache: EncodeCache) -> None:
