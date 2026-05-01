@@ -23,17 +23,18 @@ Jeśli pracujemy nad nowym feature, kroki taki:
 * Stworzenie specyfikacji pod feature (patrz Nowy feature poniżej)
 * Akceptacja specyfikacji przez człowieka
 * Wykonanie implementacji
-* Odznaczenie wykonanego feature w spec
+* Odznaczenie wykonanego feature w TODO.md (`[ ]` → `[x]`)
 * Update SPECIFICATION.md
 
 # Nowy feature
 
-W doc/TODO.py są nowe funkcjonalności do implementacji. Znajdź specyfikację w tym pliku przy implementacji nowej. Zrób gałąź git, pytaj mnie o specyfikację
-feature.
+W docs/TODO.md są nowe funkcjonalności do implementacji. Każda ma numer (`#N`).
+Znajdź specyfikację w tym pliku przy implementacji nowej. Zrób gałąź git, pytaj mnie o specyfikację feature.
 
 Stwórz:
 
-- Nowy katalog YYYY-MM-DD-feature-name w docs/ dla prac nad tym feature
+- Nowy katalog `YYYY-MM-DD-NNN-feature-name` w docs/ dla prac nad tym feature,
+  gdzie `NNN` to numer z TODO (np. `2026-05-01-004-channel-info`)
 - W tym katalogu:
     - `plan.md` seria ponumerowanych grup zadań
     - `requirements.md` dla zakresu, decyzji i kotekstu
@@ -41,6 +42,9 @@ Stwórz:
       zrobić merge
 
 Odnieś się do docs/SPECIFICATION.md, oraz istniejących specyfikaji feature'ów dla wskazówek.
+
+Po zakończeniu implementacji i zaakceptowaniu przez użytkownika:
+- Oznacz feature jako `[x]` w docs/TODO.md
 
 Ważne: _musisz_ używać narzędzia AskUserQuestions,
 zanim zapiszesz na dysk.
