@@ -125,7 +125,7 @@ class YouTubeTUI:
         for video in self.videos:
             if self.show_watch_later and not video.watch_later:
                 continue
-            if not self.show_watch_later and not self.show_shorts and video.duration_seconds < threshold:
+            if not self.show_shorts and video.duration_seconds < threshold:
                 continue
             if self.filter_channel_id and video.channel_id != self.filter_channel_id:
                 continue
