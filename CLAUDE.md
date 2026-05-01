@@ -47,6 +47,9 @@ Odnieś się do docs/SPECIFICATION.md, oraz istniejących specyfikaji feature'ó
 
 Po zakończeniu implementacji i zaakceptowaniu przez użytkownika:
 - Oznacz feature jako `[x]` w docs/TODO.md
+- Pliki specyfikacji feature (`plan.md`, `requirements.md`, `validation.md`) muszą
+  być commitowane do repozytorium — zrób osobny commit z tymi plikami przed lub
+  podczas merge do master.
 
 Ważne: _musisz_ używać narzędzia AskUserQuestions,
 zanim zapiszesz na dysk.
