@@ -76,8 +76,8 @@ class ChannelsStatsView:
 
     Columns: channel name, average videos/month (all), average non-short
     videos/month, and median duration of non-short videos.  Supports sorting
-    by any column and changing the analysis period and Shorts threshold
-    without leaving the view.
+    by any column (h/l/←/→), live search (/), and vim-style navigation
+    (gg, G, [n]G, [n]j, [n]k, PageUp, PageDown, zz).
 
     Attributes:
         db: Open database connection.
@@ -99,6 +99,10 @@ class ChannelsStatsView:
         self._selected = 0
         self._top_line = 0
         self._rows: List[ChannelStatRow] = []
+        self._input_buffer = ""
+        self._last_key = 0
+        self._is_searching = False
+        self._search_query = ""
         self._reload_data()
 
     def _reload_data(self) -> None:
@@ -120,6 +124,20 @@ class ChannelsStatsView:
             reverse=not self._sort_asc,
         )
 
+    def _filtered_rows(self, rows: List[ChannelStatRow]) -> List[ChannelStatRow]:
+        """Filters rows by the active search query (case-insensitive substring on channel name).
+
+        Args:
+            rows: Pre-sorted list to filter.
+
+        Returns:
+            Filtered list; full list when query is empty.
+        """
+        if not self._search_query:
+            return rows
+        q = self._search_query.lower()
+        return [r for r in rows if q in r.channel_title.lower()]
+
     def run(self, stdscr: "curses.window") -> Optional[str]:
         """Runs the event loop for this view.
 
@@ -132,38 +150,139 @@ class ChannelsStatsView:
             - ``None`` when the user presses ``ESC`` or ``a`` to go back.
         """
         curses.curs_set(0)
+        stdscr.timeout(-1)  # blocking — undo the 100ms timeout set by the main TUI loop
         while True:
-            rows = self._sorted_rows()
+            rows = self._filtered_rows(self._sorted_rows())
             self._draw(stdscr, rows)
             key = stdscr.getch()
+            if key == -1:
+                continue
 
+            # --- Search mode ---
+            if self._is_searching:
+                if key in (curses.KEY_BACKSPACE, 127, 8):
+                    self._search_query = self._search_query[:-1]
+                elif key == 27:  # ESC — exit search and clear filter
+                    self._is_searching = False
+                    self._search_query = ""
+                elif key in (curses.KEY_ENTER, 10, 13):  # Enter — exit search, keep filter
+                    self._is_searching = False
+                elif key == curses.KEY_DOWN:
+                    self._selected = min(self._selected + 1, max(0, len(rows) - 1))
+                    self._ensure_visible(stdscr)
+                elif key == curses.KEY_UP:
+                    self._selected = max(self._selected - 1, 0)
+                    self._ensure_visible(stdscr)
+                elif 32 <= key <= 126:
+                    self._search_query += chr(key)
+                self._last_key = key
+                continue
+
+            # --- Digit buffering for numeric prefix ---
+            if ord("0") <= key <= ord("9"):
+                self._input_buffer += chr(key)
+                self._last_key = key
+                continue
+
+            had_prefix = bool(self._input_buffer)
+            count = int(self._input_buffer) if had_prefix else 1
+            self._input_buffer = ""
+
+            # --- Key dispatch ---
             if key == ord("q"):
                 return QUIT_SENTINEL
-            elif key in (27, ord("a")):  # ESC or 'a'
+
+            elif key == 27:  # ESC — clear filter if active, else go back
+                if self._search_query:
+                    self._search_query = ""
+                else:
+                    return None
+
+            elif key == ord("a"):
                 return None
+
             elif key in (curses.KEY_ENTER, 10, 13):
                 if rows:
                     return rows[self._selected].channel_id
                 return None
+
             elif key in (curses.KEY_DOWN, ord("j")):
-                self._selected = min(self._selected + 1, max(0, len(rows) - 1))
+                self._selected = min(self._selected + count, max(0, len(rows) - 1))
                 self._ensure_visible(stdscr)
+
             elif key in (curses.KEY_UP, ord("k")):
-                self._selected = max(self._selected - 1, 0)
+                self._selected = max(self._selected - count, 0)
                 self._ensure_visible(stdscr)
-            elif key in (ord("1"), ord("2"), ord("3"), ord("4")):
-                col = key - ord("1")
-                if col == self._sort_col:
-                    self._sort_asc = not self._sort_asc
+
+            elif key == ord("g"):
+                if self._last_key == ord("g"):
+                    self._selected = 0
+                    self._top_line = 0
+
+            elif key == ord("G"):
+                if had_prefix:
+                    self._selected = max(0, min(count - 1, len(rows) - 1))
                 else:
-                    self._sort_col = col
-                    self._sort_asc = True
-                self._selected = 0
-                self._top_line = 0
+                    self._selected = max(0, len(rows) - 1)
+                self._ensure_visible(stdscr)
+
+            elif key == ord("z"):
+                if self._last_key == ord("z"):
+                    self._center_view(stdscr)
+                else:
+                    self._last_key = key
+                    continue
+
+            elif key in (curses.KEY_PPAGE, 2):  # PageUp / Ctrl+b
+                sh, _ = stdscr.getmaxyx()
+                page = max(1, sh - 3)
+                self._selected = max(0, self._selected - page)
+                self._ensure_visible(stdscr)
+
+            elif key in (curses.KEY_NPAGE, 6):  # PageDown / Ctrl+f
+                sh, _ = stdscr.getmaxyx()
+                page = max(1, sh - 3)
+                self._selected = min(max(0, len(rows) - 1), self._selected + page)
+                self._ensure_visible(stdscr)
+
+            elif key in (ord("h"), curses.KEY_LEFT):
+                self._change_sort_col(-1)
+
+            elif key in (ord("l"), curses.KEY_RIGHT):
+                self._change_sort_col(1)
+
+            elif key == ord(" "):
+                self._sort_asc = not self._sort_asc
+
             elif key == ord("m"):
                 self._prompt_months(stdscr)
+
             elif key == ord("S"):
                 self._prompt_shorts_threshold(stdscr)
+
+            elif key == ord("/"):
+                self._is_searching = True
+                self._search_query = ""
+
+            self._last_key = key
+
+    def _change_sort_col(self, direction: int) -> None:
+        """Changes the active sort column left or right, toggling direction on same column.
+
+        Args:
+            direction: +1 for next column, -1 for previous column.
+        """
+        new_col = (self._sort_col + direction) % 4
+        if new_col == self._sort_col:
+            self._sort_asc = not self._sort_asc
+        else:
+            self._sort_col = new_col
+            self._sort_asc = True
+        self._selected = 0
+        self._top_line = 0
+        self._input_buffer = ""
+        self._search_query = ""
+        self._is_searching = False
 
     def _ensure_visible(self, stdscr: "curses.window") -> None:
         """Adjusts :attr:`_top_line` so the selected row stays on screen.
@@ -177,6 +296,16 @@ class ChannelsStatsView:
             self._top_line = self._selected
         elif self._selected >= self._top_line + visible:
             self._top_line = self._selected - visible + 1
+
+    def _center_view(self, stdscr: "curses.window") -> None:
+        """Centers :attr:`_top_line` so the selected row appears mid-screen.
+
+        Args:
+            stdscr: Root curses window.
+        """
+        sh, _ = stdscr.getmaxyx()
+        visible = sh - 3
+        self._top_line = max(0, self._selected - visible // 2)
 
     def _chan_w(self, sw: int) -> int:
         """Computes the channel-name column width for a given screen width.
@@ -194,7 +323,7 @@ class ChannelsStatsView:
 
         Args:
             stdscr: Root curses window.
-            rows: Pre-sorted list of rows to display.
+            rows: Pre-sorted and pre-filtered list of rows to display.
         """
         stdscr.erase()
         sh, sw = stdscr.getmaxyx()
@@ -254,11 +383,14 @@ class ChannelsStatsView:
             )
 
         # Status bar
-        status = (
-            f" [a/ESC] back  [m] period: {months}mo"
-            f"  [S] shorts: {threshold}s  [1-4] sort  [Enter] filter"
-        )
         _safe_addstr(stdscr, sh - 1, 0, " " * (sw - 1), curses.A_REVERSE)
+        if self._is_searching:
+            status = f" SEARCH: {self._search_query}_"
+        else:
+            status = (
+                f" [a/ESC] back  [m] period: {months}mo"
+                f"  [S] shorts: {threshold}s  [h/l/←/→] sort  [spc] reverse  [/] search  [Enter] filter"
+            )
         _safe_addstr(stdscr, sh - 1, 0, status, curses.A_REVERSE)
 
         stdscr.refresh()
