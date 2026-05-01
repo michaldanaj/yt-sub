@@ -150,10 +150,13 @@ class ChannelsStatsView:
             - ``None`` when the user presses ``ESC`` or ``a`` to go back.
         """
         curses.curs_set(0)
+        stdscr.timeout(-1)  # blocking — undo the 100ms timeout set by the main TUI loop
         while True:
             rows = self._filtered_rows(self._sorted_rows())
             self._draw(stdscr, rows)
             key = stdscr.getch()
+            if key == -1:
+                continue
 
             # --- Search mode ---
             if self._is_searching:
