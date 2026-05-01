@@ -74,7 +74,7 @@ Sync odbywa się w tle — TUI pozostaje responsywne, pasek statusu pokazuje
 postęp i wynik. Jeśli sync już trwa, ponowne wciśnięcie `r`/`Ctrl+R` jest
 ignorowane.
 
-## [x] #9 Zestawienie kanałów ze statystykami (średni)
+## [ ] #9 Zestawienie kanałów ze statystykami (średni)
 
 Wyświetlenie statystyk kanałów w tabeli i możliwość ich sortowania
 
@@ -130,3 +130,8 @@ jeszcze uruchomić je jako nieblokujące.
 
 Rozważyć przeniesienie ich z cache do katalogu z bazą danych, albo wręcz do bazy
 danych.
+
+## [x] #19 Poruszanie się po liście statystyk
+
+Dodać do listy statystyk taką obsługę klawiszy do poruszania się i wyszukiwania jak na liście filmów.
+

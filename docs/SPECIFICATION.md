@@ -262,13 +262,30 @@ Shorty definiowane są przez `shorts_threshold_seconds` z `config.json`. Okres a
 
 | Klawisz | Akcja |
 |---------|-------|
-| `j` / `k` / strzałki | Nawigacja po wierszach |
-| `1`–`4` | Sortowanie po kolumnie; ponowne wciśnięcie odwraca kierunek (`▲`/`▼` w nagłówku) |
+| `j` / `k` / `↑` / `↓` | Nawigacja po wierszach (o 1) |
+| `[n]j` / `[n]k` | Przeskok o N wierszy (prefix numeryczny) |
+| `gg` | Skok na początek listy |
+| `G` | Skok na koniec listy |
+| `[n]G` | Skok do wiersza N (1-based) |
+| `PageUp` / `Ctrl+b` | Przewinięcie o pełną stronę w górę |
+| `PageDown` / `Ctrl+f` | Przewinięcie o pełną stronę w dół |
+| `zz` | Wycentrowanie widoku na zaznaczonym wierszu |
+| `h` / `←` | Przełączenie sortowania na poprzednią kolumnę |
+| `l` / `→` | Przełączenie sortowania na następną kolumnę |
+| `spacja` | Odwrócenie kierunku sortowania aktywnej kolumny (`▲`/`▼` w nagłówku) |
+| `/` | Wejście w tryb wyszukiwania (filtrowanie po nazwie kanału) |
 | `m` | Prompt zmiany okresu statystyk (`1–24` miesięcy); zapisuje `stats_months` do `config.json` |
 | `S` | Prompt zmiany progu Shorts; zapisuje `shorts_threshold_seconds` do `config.json` |
 | `Enter` | Powrót do głównej listy z filtrem wybranego kanału |
-| `a` / `ESC` | Powrót do głównej listy bez zmian filtrów |
+| `a` / `ESC` | Powrót do głównej listy (ESC czyści aktywny filtr wyszukiwania, jeśli jest) |
 | `q` | Wyjście z aplikacji |
+
+**Tryb wyszukiwania (`/`):**
+- Wpisywany tekst filtruje listę w czasie rzeczywistym po nazwie kanału (case-insensitive, substring).
+- Pasek statusu pokazuje `SEARCH: <zapytanie>_`.
+- `↑`/`↓` nawigują po wyfiltrowanych wierszach; `j`/`k` wpisują litery do zapytania.
+- `Enter` kończy tryb wyszukiwania (filtr pozostaje aktywny).
+- `ESC` kończy tryb wyszukiwania i czyści filtr.
 
 #### Konfiguracja
 
