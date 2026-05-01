@@ -46,6 +46,13 @@ próg Shorts i filmy z ostatnich 3 miesięcy.
 - **Oczekiwane:** Powrót do głównej listy z filtrem ustawionym na kanał X
   (tylko filmy tego kanału widoczne).
 
+## SC-5b: Zmiana progu Shorts (`S`)
+
+1. Wciśnij `S`, wpisz `60`, zatwierdź Enter.
+- **Oczekiwane:** Statystyki przeliczone z nowym progiem (60 s); pasek statusu
+  pokazuje `shorts: 60s`; `shorts_threshold_seconds: 60` zapisane w `config.json`.
+  Kolumny `Non-short/mo` i `Median dur` odzwierciedlają nową definicję shorta.
+
 ## SC-6: Kanał bez filmów w okresie
 
 1. Ustaw okres na 1 miesiąc; kanał który dawno nie publikował.

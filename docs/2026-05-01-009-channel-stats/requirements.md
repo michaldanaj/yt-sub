@@ -17,6 +17,7 @@ wybranego kanału.
 | `j` / `k` / strzałki | Ruch w górę/dół po wierszach tabeli |
 | `1` / `2` / `3` / `4` | Sortowanie po kolumnie 1–4; ponowne wciśnięcie tej samej cyfry odwraca kierunek (asc ↔ desc) |
 | `m` | Prompt zmiany okresu statystyk (`Months (1-24):`) |
+| `S` | Prompt zmiany progu Shorts (`Shorts threshold (seconds):`) |
 | `Enter` | Powrót do głównej listy z filtrem wybranego kanału (`b`) |
 | `q` | Wyjście z aplikacji |
 
@@ -63,8 +64,8 @@ Nowy klucz w sekcji `"ui"` pliku `config.json`:
 ```
 
 - Domyślna wartość: `3`.
-- Klawisz `m` wyświetla mini-prompt (jak istniejący prompt `S` dla Shorts
-  threshold), waliduje zakres `1–24` i zapisuje do `config.json`.
+- Klawisz `m` wyświetla mini-prompt, waliduje zakres `1–24` i zapisuje do `config.json`.
+- Klawisz `S` wyświetla mini-prompt zmiany progu Shorts (analogicznie jak w głównym widoku), zapisuje do `config.json` i przelicza statystyki.
 
 ---
 
@@ -85,7 +86,7 @@ Nowy klucz w sekcji `"ui"` pliku `config.json`:
   1 Fireship               12.3           8.1     8:42
   2 ThePrimeagen            4.0           4.0    42:15
   ...
-[a] back  [m] period: 3mo  [1-4] sort  [Enter] filter
+[a] back  [m] period: 3mo  [S] shorts: 90s  [1-4] sort  [Enter] filter
 ```
 
 - Nagłówki kolumn wyrównane do kolumn danych.

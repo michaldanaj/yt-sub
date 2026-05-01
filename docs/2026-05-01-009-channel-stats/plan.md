@@ -19,6 +19,10 @@
    - `_draw(stdscr)` — rysuje nagłówek, wiersze tabeli i pasek statusu.
    - `_prompt_months(stdscr)` — mini-prompt dla klawisza `m`; zapisuje
      do `config.json` i przeładowuje dane.
+   - `_prompt_shorts_threshold(stdscr)` — mini-prompt dla klawisza `S`;
+     reużywa logiki z `YouTubeTUI._set_shorts_threshold` (lub wspólnej
+     funkcji pomocniczej w `tui.py`); zapisuje do `config.json`
+     i przeładowuje dane.
 
 ## Grupa 3: Integracja z `tui.py`
 
