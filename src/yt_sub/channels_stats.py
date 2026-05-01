@@ -159,25 +159,16 @@ class ChannelsStatsView:
             if self._is_searching:
                 if key in (curses.KEY_BACKSPACE, 127, 8):
                     self._search_query = self._search_query[:-1]
-                    self._selected = 0
-                    self._top_line = 0
-                elif key == 27:  # ESC — exit search and clear filter
+                elif key in (27, curses.KEY_ENTER, 10, 13):  # ESC or Enter — exit search, keep filter
                     self._is_searching = False
-                    self._search_query = ""
-                    self._selected = 0
-                    self._top_line = 0
-                elif key in (curses.KEY_ENTER, 10, 13):
-                    self._is_searching = False
-                elif key in (curses.KEY_DOWN, ord("j")):
+                elif key == curses.KEY_DOWN:
                     self._selected = min(self._selected + 1, max(0, len(rows) - 1))
                     self._ensure_visible(stdscr)
-                elif key in (curses.KEY_UP, ord("k")):
+                elif key == curses.KEY_UP:
                     self._selected = max(self._selected - 1, 0)
                     self._ensure_visible(stdscr)
                 elif 32 <= key <= 126:
                     self._search_query += chr(key)
-                    self._selected = 0
-                    self._top_line = 0
                 self._last_key = key
                 continue
 
@@ -195,8 +186,11 @@ class ChannelsStatsView:
             if key == ord("q"):
                 return QUIT_SENTINEL
 
-            elif key in (27,):  # ESC
-                return None
+            elif key == 27:  # ESC — clear filter if active, else go back
+                if self._search_query:
+                    self._search_query = ""
+                else:
+                    return None
 
             elif key == ord("a"):
                 return None
@@ -260,8 +254,6 @@ class ChannelsStatsView:
             elif key == ord("/"):
                 self._is_searching = True
                 self._search_query = ""
-                self._selected = 0
-                self._top_line = 0
 
             self._last_key = key
 
