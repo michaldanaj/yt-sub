@@ -732,6 +732,7 @@ class YouTubeTUI:
             self.input_buffer = ""
         elif key == ord('a'):
             from .channels_stats import ChannelsStatsView, QUIT_SENTINEL
+            thumbnails.clear_kitty()
             result = ChannelsStatsView(self.db, self.config).run(stdscr)
             if result == QUIT_SENTINEL:
                 return True
@@ -740,6 +741,7 @@ class YouTubeTUI:
                 self.filter_channel_id = result
                 self.display_items = self._get_display_list()
                 self._reselect_nearest_visible(prev_id)
+            self._thumb_kitty_cache.clear()
             self.input_buffer = ""
         elif key in (ord('r'), 18):  # 18 = Ctrl+R
             if self._sync_starter and not self.is_syncing:
