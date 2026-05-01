@@ -708,23 +708,33 @@ class YouTubeTUI:
             self.input_buffer = ""
         elif key in [curses.KEY_UP, ord('k')]:
             curr = self._find_current_display_index()
-            moves = count
-            target = curr
-            while moves > 0 and target > 0:
-                target -= 1
-                if self.display_items[target]["type"] == "video":
-                    self.selected_id = self.display_items[target]["content"].id
-                    moves -= 1
+            if count == 1:
+                target = curr
+                while target > 0:
+                    target -= 1
+                    if self.display_items[target]["type"] == "video":
+                        self.selected_id = self.display_items[target]["content"].id
+                        break
+            else:
+                target = max(0, curr - count)
+                for idx in range(target, len(self.display_items)):
+                    if self.display_items[idx]["type"] == "video":
+                        self.selected_id = self.display_items[idx]["content"].id; break
             self.input_buffer = ""
         elif key in [curses.KEY_DOWN, ord('j')]:
             curr = self._find_current_display_index()
-            moves = count
-            target = curr
-            while moves > 0 and target < len(self.display_items) - 1:
-                target += 1
-                if self.display_items[target]["type"] == "video":
-                    self.selected_id = self.display_items[target]["content"].id
-                    moves -= 1
+            if count == 1:
+                target = curr
+                while target < len(self.display_items) - 1:
+                    target += 1
+                    if self.display_items[target]["type"] == "video":
+                        self.selected_id = self.display_items[target]["content"].id
+                        break
+            else:
+                target = min(len(self.display_items) - 1, curr + count)
+                for idx in range(target, len(self.display_items)):
+                    if self.display_items[idx]["type"] == "video":
+                        self.selected_id = self.display_items[idx]["content"].id; break
             self.input_buffer = ""
         elif key == ord('J'):
             curr = self._find_current_display_index()
@@ -791,7 +801,7 @@ class YouTubeTUI:
         elif key in [curses.KEY_NPAGE, 6]:
             curr = self._find_current_display_index()
             target = min(len(self.display_items) - 1, curr + max(1, self._last_sh - 2))
-            for idx in range(target, -1, -1):
+            for idx in range(target, len(self.display_items)):
                 if self.display_items[idx]["type"] == "video":
                     self.selected_id = self.display_items[idx]["content"].id; break
             self.input_buffer = ""
