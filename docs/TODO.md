@@ -135,3 +135,9 @@ danych.
 
 Dodać do listy statystyk taką obsługę klawiszy do poruszania się i wyszukiwania jak na liście filmów.
 
+## [ ] #20 Escape liniowy powrót
+
+Zapamiętuje kolejność działań typu zmiana widoku, filtr, i przy Escape, cofa się o jeden.
+
+
+
