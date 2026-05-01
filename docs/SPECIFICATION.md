@@ -59,11 +59,22 @@ Aplikacja przechowuje pełne informacje dostępne przez API:
 - **Tabela `videos`**: ID, ID kanału, tytuł, opis, data publikacji, czas trwania (format `H:MM:SS` lub `M:SS` z prawostronnym wyrównaniem do 7 znaków), URL miniatury, statystyki (widoki, lajki, komentarze), tytuł kanału, status "Watch Later" (`watch_later`), data ostatniej synchronizacji (`last_synced`), surowy JSON.
 - **Tabela `metadata`**: Przechowuje datę ostatniej synchronizacji (klucz `last_update`).
 - **Tabela `later_sync_snapshot`**: Snapshot poprzedniej synchronizacji listy Later z YouTube — słownik `{video_id: playlist_item_id}`. Przy zapisie nowego snapshotu tabela jest czyszczona i wypełniana od nowa w jednej transakcji (atomowo).
+- **Tabela `later_sync_queue`**: Outbox dla natychmiastowego sync Later. Każde naciśnięcie `l`/`d` wstawia operację do tej tabeli (atomowo z aktualizacją `watch_later`). Worker thread drenuje kolejkę FIFO, ponawia nieudane operacje z backoffem i po 5 nieudanych próbach ustawia `status='failed'`.
 
 ```sql
 CREATE TABLE IF NOT EXISTS later_sync_snapshot (
     video_id TEXT PRIMARY KEY,
     playlist_item_id TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS later_sync_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id TEXT NOT NULL,
+    action TEXT NOT NULL CHECK(action IN ('add', 'remove')),
+    created_at TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    status TEXT NOT NULL DEFAULT 'pending'
 );
 ```
 
@@ -114,6 +125,7 @@ Filmy pogrupowane nagłówkami dat w formacie `--- YYYY-MM-DD ---`.
 | `s` | Przełączenie widoczności Shortów (filmów poniżej progu czasu) |
 | `S` | Ustawienie progu czasu dla Shortów (w sekundach; zapisywane do `config.json`) |
 | `t` | Przełączenie widoczności miniatur (thumbnail toggle; zapisywane do `config.json`) |
+| `E` | Wyświetlenie listy niezsynchronizowanych operacji Later (modal); `r` retry, `R` retry all, `d` usuń, `ESC`/`E` zamknij |
 | `a` | Otwarcie widoku statystyk kanałów (tabela); `ESC`/`a` wraca, `Enter` ustawia filtr kanału |
 | `r` / `Ctrl+R` | Ręczne wyzwolenie pełnej synchronizacji (filmy + Later sync); ignorowane gdy sync już trwa |
 | `b` | Przełączenie filtrowania tylko do filmów z aktualnego kanału |
@@ -244,7 +256,35 @@ Wątek sync wysyła do `sync_queue` wiadomość `{"type": "later_sync_done", "re
 
 Błąd przy konkretnej operacji (np. nieudane dodanie jednego filmu) jest dołączany do `SyncResult.errors`, pozostałe operacje są kontynuowane. Jeśli całkowity fetch YouTube nie powiedzie się, sync jest pomijany (snapshot bez zmian). Błędy logowane są do `~/.cache/yt-sub/sync_error.log`.
 
-### 5.4. Widok statystyk kanałów (`channels_stats.py`)
+### 5.4. Natychmiastowy sync Later (outbox, `later_outbox.py`)
+
+Moduł `later_outbox.py` dostarcza klasę `LaterOutboxWorker` — daemon thread, który propaguje lokalne zmiany Watch Later do YouTube API niezwłocznie, bez czekania na pełny sync.
+
+#### Mechanizm
+
+- Każde naciśnięcie `l` (add) lub `d` (remove) wykonuje **jedną atomową transakcję SQLite**: aktualizuje `videos.watch_later` ORAZ wstawia operację do `later_sync_queue` (z deduplikacją).
+- **Sprytna deduplikacja**: jeśli ostatni `pending` wpis dla danego `video_id` ma akcję przeciwną, oba są kasowane (no-op). Identyczna akcja nie jest duplikowana.
+- Worker budzi się natychmiast po enqueue (via `threading.Event`) i przetwarza kolejkę FIFO.
+- Przy starcie aplikacji worker najpierw drenuje zaległe `pending` wpisy z poprzedniej sesji.
+- **Kolejność przy starcie**: worker ustawia `drained_event` po pierwszym pełnym przejściu; `background_sync` czeka na ten event przed uruchomieniem two-way sync, żeby obie strony widziały spójny stan.
+
+#### Retry i backoff
+
+5 prób z opóźnieniami `[1s, 5s, 30s, 5min, 30min]`. Po 5 nieudanych: `status='failed'`, brak dalszych automatycznych prób. Błędy logowane do `sync_error.log`.
+
+#### Feedback
+
+- Pasek statusu: gdy w `later_sync_queue` istnieje `≥ 1` wpis `status='failed'`, wyświetla segment `[E]rrors` z **czerwonym tłem** jako pierwszą pozycję (przed `[q]uit`).
+- Klawisz `E`: otwiera modal z listą failed entries (tytuł, kanał, action, attempts, last_error). Akcje: `r` retry zaznaczonego, `R` retry all, `d` usuń wpis, `ESC`/`E` zamknij.
+- Wpisy `failed` persystują między sesjami; przy starcie z zaległymi failed wskaźnik `[E]rrors` pojawia się od razu.
+- Quit (`q`) nie czeka na worker — daemon thread kończy się z procesem, niezakończone `pending` wpisy zostaną dograne przy kolejnym starcie.
+
+#### Aktualizacja snapshot
+
+Po sukcesie `add`: worker wstawia `(video_id, playlist_item_id)` do `later_sync_snapshot`.
+Po sukcesie `remove`: worker usuwa wpis z `later_sync_snapshot`. Jeśli `playlist_item_id` nie ma w snapshot (item nie był śledzony), operacja remove jest traktowana jako sukces (item zapewne nie istnieje na YT).
+
+### 5.5. Widok statystyk kanałów (`channels_stats.py`)
 
 Klawisz `a` otwiera osobny widok tabelaryczny z zagregowanymi statystykami wszystkich kanałów. Widok obsługiwany przez klasę `ChannelsStatsView` w module `channels_stats.py`.
 

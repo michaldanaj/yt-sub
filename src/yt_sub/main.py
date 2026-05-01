@@ -24,6 +24,7 @@ from .database import Database
 from .tui import start_tui, THUMB_CACHE_DIR
 from .models import Video
 from .later_sync import sync_later
+from .later_outbox import LaterOutboxWorker
 
 # Number of parallel thumbnail downloads; kept below SYNC_MAX_WORKERS
 # to avoid hammering i.ytimg.com during a large initial sync.
@@ -84,6 +85,7 @@ def background_sync(
     sync_queue: queue.Queue,
     sync_start_rfc3339: Optional[str],
     config: Optional[dict] = None,
+    outbox_drained_event: Optional[threading.Event] = None,
 ) -> None:
     """Runs a full sync in the calling thread and posts results to *sync_queue*.
 
@@ -103,6 +105,9 @@ def background_sync(
             ``None`` fetches all available history.
         config: Parsed application config dict passed to :func:`sync_later`.
             When ``None`` the Later sync is skipped.
+        outbox_drained_event: When provided, the Later two-way sync waits
+            for this event before running so that pending outbox operations
+            are propagated to YouTube first.
     """
     def progress(msg: str) -> None:
         sync_queue.put({"type": "progress", "message": msg})
@@ -138,8 +143,12 @@ def background_sync(
 
         db.set_last_update(now_rfc3339)
 
-        # Sync Later playlist with YouTube (two-way)
+        # Sync Later playlist with YouTube (two-way).
+        # Wait for the outbox worker to drain pending ops first so both sides
+        # see a consistent state and two-way sync doesn't undo local changes.
         if config is not None:
+            if outbox_drained_event is not None:
+                outbox_drained_event.wait(timeout=60)
             progress("Syncing Later playlist with YouTube...")
             try:
                 later_result = sync_later(db, client, config)
@@ -193,6 +202,7 @@ def make_sync_starter(
     client: YouTubeClient,
     config: dict,
     sync_queue: queue.Queue,
+    outbox_drained_event: Optional[threading.Event] = None,
 ) -> "Callable[[], threading.Thread]":
     """Returns a zero-argument callable that starts a background sync thread.
 
@@ -206,6 +216,8 @@ def make_sync_starter(
         client: Authenticated YouTube API client.
         config: Parsed application config dict.
         sync_queue: Queue shared with the TUI for inter-thread communication.
+        outbox_drained_event: Forwarded to :func:`background_sync` so each
+            manual sync also waits for the outbox to drain first.
 
     Returns:
         A callable ``() -> threading.Thread``.
@@ -214,7 +226,7 @@ def make_sync_starter(
         sync_start = calc_sync_start(db)
         t = threading.Thread(
             target=background_sync,
-            args=(db, client, sync_queue, sync_start, config),
+            args=(db, client, sync_queue, sync_start, config, outbox_drained_event),
             daemon=True,
         )
         t.start()
@@ -295,18 +307,28 @@ def main() -> None:
         if "youtube" not in _config:
             _config["youtube"] = {"later_playlist_name": "Later", "later_playlist_id": ""}
 
+        # Start outbox worker so pending Later ops are synced immediately
+        outbox_event = threading.Event()
+        outbox_worker = LaterOutboxWorker(db, client, _config, outbox_event)
+        outbox_worker.start()
+
         # Start TUI and background sync
         sync_queue = queue.Queue()
-        sync_starter = make_sync_starter(db, client, _config, sync_queue)
+        sync_starter = make_sync_starter(
+            db, client, _config, sync_queue,
+            outbox_drained_event=outbox_worker.drained_event,
+        )
 
         sync_thread = threading.Thread(
             target=background_sync,
-            args=(db, client, sync_queue, sync_start_rfc3339, _config),
+            args=(db, client, sync_queue, sync_start_rfc3339, _config,
+                  outbox_worker.drained_event),
             daemon=True,
         )
         sync_thread.start()
 
-        start_tui(all_videos, db, sync_queue, sync_starter=sync_starter)
+        start_tui(all_videos, db, sync_queue, sync_starter=sync_starter,
+                  outbox_event=outbox_event)
         db.close()
 
 
