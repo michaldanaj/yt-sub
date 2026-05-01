@@ -381,7 +381,7 @@ wheels = [
 
 [[package]]
 name = "yt-sub"
-version = "0.6.0"
+version = "0.7.0"
 source = { editable = "." }
 dependencies = [
     { name = "google-api-python-client" },

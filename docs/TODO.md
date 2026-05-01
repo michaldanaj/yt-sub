@@ -126,7 +126,7 @@ Napisać i utrzymywać.
 dodać info, że uruchamia się odtwarzanie, bo teraz nie wiadomo tego. I najlepiej
 jeszcze uruchomić je jako nieblokujące.
 
-## [ ] #18 Gdzie thumbnails (mały)
+## [ ] #18 Przechowywanie thumbnails (mały)
 
 Rozważyć przeniesienie ich z cache do katalogu z bazą danych, albo wręcz do bazy
 danych.
