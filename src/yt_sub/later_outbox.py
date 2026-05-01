@@ -138,7 +138,7 @@ class LaterOutboxWorker:
             if new_attempts >= MAX_ATTEMPTS:
                 self.db.mark_op_failed(op_id)
             else:
-                time.sleep(BACKOFF_SECONDS[min(new_attempts - 1, len(BACKOFF_SECONDS) - 1)])
+                self._interruptible_sleep(BACKOFF_SECONDS[min(new_attempts - 1, len(BACKOFF_SECONDS) - 1)])
             return
 
         try:
@@ -163,7 +163,20 @@ class LaterOutboxWorker:
             if new_attempts >= MAX_ATTEMPTS:
                 self.db.mark_op_failed(op_id)
             else:
-                time.sleep(BACKOFF_SECONDS[min(new_attempts - 1, len(BACKOFF_SECONDS) - 1)])
+                self._interruptible_sleep(BACKOFF_SECONDS[min(new_attempts - 1, len(BACKOFF_SECONDS) - 1)])
+
+    def _interruptible_sleep(self, seconds: float) -> None:
+        """Sleeps up to *seconds* but wakes early when *outbox_event* is set.
+
+        This prevents a long backoff from blocking new items enqueued while the
+        worker is waiting between retries of a failing operation.  The event is
+        NOT cleared here — the main loop clears it only when the queue is empty,
+        so the newly enqueued op is processed without an extra round-trip.
+
+        Args:
+            seconds: Maximum number of seconds to sleep.
+        """
+        self.outbox_event.wait(timeout=seconds)
 
     def _run(self) -> None:
         """Main loop: drain pending ops, then wait for new ones via *outbox_event*.
@@ -171,15 +184,11 @@ class LaterOutboxWorker:
         Sets :attr:`drained_event` once the initial queue is empty (even if it
         was already empty on startup) so that the two-way sync can start safely.
         """
-        first_pass = True
         while not self._stop:
             op = self.db.get_next_pending_op()
             if op is None:
-                if first_pass:
-                    self.drained_event.set()
-                    first_pass = False
+                self.drained_event.set()
                 self.outbox_event.wait()
                 self.outbox_event.clear()
                 continue
-            first_pass = False
             self._process_op(op.id, op.video_id, op.action)
