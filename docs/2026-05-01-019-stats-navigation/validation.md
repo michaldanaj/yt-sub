@@ -23,7 +23,7 @@
 ### Sortowanie `h`/`l`/`←`/`→`
 - [x] `l` i `→` przełączają do następnej kolumny (cyklicznie: 0→1→2→3→0).
 - [x] `h` i `←` przełączają do poprzedniej kolumny (cyklicznie: 0→3→2→1→0).
-- [ ] Ponowne naciśnięcie na tej samej kolumnie odwraca kierunek sortowania.
+- [ ] `spacja` odwraca kierunek sortowania aktywnej kolumny.
 - [x] Klawisze `1`–`4` NIE sortują już.
 
 ### Live search

@@ -243,20 +243,13 @@ class ChannelsStatsView:
                 self._ensure_visible(stdscr)
 
             elif key in (ord("h"), curses.KEY_LEFT):
-                if self._last_key in (ord("h"), curses.KEY_LEFT):
-                    self._sort_asc = not self._sort_asc
-                    self._selected = 0
-                    self._top_line = 0
-                else:
-                    self._change_sort_col(-1)
+                self._change_sort_col(-1)
 
             elif key in (ord("l"), curses.KEY_RIGHT):
-                if self._last_key in (ord("l"), curses.KEY_RIGHT):
-                    self._sort_asc = not self._sort_asc
-                    self._selected = 0
-                    self._top_line = 0
-                else:
-                    self._change_sort_col(1)
+                self._change_sort_col(1)
+
+            elif key == ord(" "):
+                self._sort_asc = not self._sort_asc
 
             elif key == ord("m"):
                 self._prompt_months(stdscr)
@@ -393,7 +386,7 @@ class ChannelsStatsView:
         else:
             status = (
                 f" [a/ESC] back  [m] period: {months}mo"
-                f"  [S] shorts: {threshold}s  [h/l/←/→] sort  [/] search  [Enter] filter"
+                f"  [S] shorts: {threshold}s  [h/l/←/→] sort  [spc] reverse  [/] search  [Enter] filter"
             )
         _safe_addstr(stdscr, sh - 1, 0, status, curses.A_REVERSE)
 

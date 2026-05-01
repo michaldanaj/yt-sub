@@ -32,7 +32,7 @@ Nowe skróty sortowania:
 |---------|-------|
 | `h` lub `←` | Przełącz sortowanie na poprzednią kolumnę |
 | `l` lub `→` | Przełącz sortowanie na następną kolumnę |
-| Ponowne naciśnięcie na tej samej kolumnie | Odwraca kierunek sortowania |
+| `spacja` | Odwraca kierunek sortowania aktywnej kolumny |
 
 Klawisze `1`–`4` zostają usunięte jako skróty sortowania.
 
@@ -56,11 +56,12 @@ są resetowane; zaznaczenie i `_top_line` idą do 0.
 - Prefix numeryczny: bufor `_input_buffer` zbierający cyfry, czyszczony po
   każdej akcji nie-cyfrowej (analogicznie do `tui.py`).
 - Sortowanie `h`/`l`/`←`/`→`: `h`/`←` przesuwa `_sort_col` w lewo (mod 4), `l`/`→` w prawo
-  (mod 4). Jeśli nowa kolumna == stara, odwraca `_sort_asc`.
+  (mod 4). Zmiana kolumny zawsze ustawia kierunek na rosnący.
+- `spacja` odwraca `_sort_asc` bez zmiany kolumny.
 - Koalescencja trzymanego klawisza — **nie** wymagana w tym feature.
 - Wyszukiwanie filtruje wiersze **po posortowaniu**.
 - Status bar: zaktualizować skróty (usunąć `[1-4] sort`, dodać `[h/l/←/→] sort`,
-  dodać `[/] search`).
+  `[space] reverse`, dodać `[/] search`).
 
 ## Kontekst
 
