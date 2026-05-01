@@ -113,6 +113,7 @@ Filmy pogrupowane nagłówkami dat w formacie `--- YYYY-MM-DD ---`.
 | `d` | Usunięcie wybranego filmu z listy "Watch Later" |
 | `s` | Przełączenie widoczności Shortów (filmów poniżej progu czasu) |
 | `S` | Ustawienie progu czasu dla Shortów (w sekundach; zapisywane do `config.json`) |
+| `t` | Przełączenie widoczności miniatur (thumbnail toggle; zapisywane do `config.json`) |
 | `a` | Otwarcie widoku statystyk kanałów (tabela); `ESC`/`a` wraca, `Enter` ustawia filtr kanału |
 | `r` / `Ctrl+R` | Ręczne wyzwolenie pełnej synchronizacji (filmy + Later sync); ignorowane gdy sync już trwa |
 | `b` | Przełączenie filtrowania tylko do filmów z aktualnego kanału |
@@ -339,7 +340,8 @@ Struktura:
     "ui": {
         "pane_split_ratio": 0.5,
         "page_scroll_ratio": 0.8,
-        "shorts_threshold_seconds": 90
+        "shorts_threshold_seconds": 90,
+        "show_thumbnails": true
     },
     "youtube": {
         "later_playlist_name": "Later",
@@ -351,6 +353,7 @@ Struktura:
 - `pane_split_ratio`: Proporcja podziału ekranu (lewa/prawa); domyślnie `0.5` (50/50).
 - `page_scroll_ratio`: Nieużywane bezpośrednio (PageUp/Down przewijają o `sh-2` linii).
 - `shorts_threshold_seconds`: Próg czasu (w sekundach) dla filtrowania Shortów; domyślnie `90`.
+- `show_thumbnails`: Czy miniatury są widoczne w prawym panelu; domyślnie `true`. Zmieniane klawiszem `t`, zapisywane natychmiast do `config.json`.
 - `later_playlist_name`: Nazwa playlisty na YouTube używanej jako lista Later; domyślnie `"Later"`. Jeśli playlista o tej nazwie nie istnieje, jest tworzona przy pierwszej synchronizacji.
 - `later_playlist_id`: ID playlisty YouTube (np. `PLxxxxx`). Uzupełniane automatycznie po odnalezieniu lub utworzeniu playlisty i zapisywane z powrotem do `config.json`. Jeśli puste, aplikacja szuka po nazwie (`later_playlist_name`).
 
