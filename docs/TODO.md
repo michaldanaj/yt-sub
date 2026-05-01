@@ -9,14 +9,14 @@ kursor.
 - Algorytm synchronizacji musi uwzględniać możliwość dodania lub usuwania filmu
   poza aplikacją i odpowiednio synchronizować zmiany lokalnie
 
-## [ ] #2 Natychmiastowy sync Later przy lokalnej zmianie (średni)
+## [x] #2 Natychmiastowy sync Later przy lokalnej zmianie (średni)
 
 Gdy użytkownik dodaje (`l`) lub usuwa (`d` z widoku Later) film z lokalnej listy
 Later, zmiana powinna być od razu propagowana do playlisty na YouTube (bez
 czekania na pełny sync przy starcie). Wywołanie API w tle, żeby nie blokować TUI.
 
 Uwaga: wymaga dostępu do `YouTubeClient` i snapshootu z poziomu obsługi klawisza
-w TUI — warto ocenić czy nie psuje architektury za bardzo zanim się implementuje.
+w TUI — warto ocenić czy nie psuje architektury za bardzo zanim się implementuje. Chyba najprościej byłoby to zrobić poprzez wywołanie standardowej synchronizacji listy?
 
 ## [x] #3 Przeskakiwanie (mały)
 
@@ -74,7 +74,7 @@ Sync odbywa się w tle — TUI pozostaje responsywne, pasek statusu pokazuje
 postęp i wynik. Jeśli sync już trwa, ponowne wciśnięcie `r`/`Ctrl+R` jest
 ignorowane.
 
-## [ ] #9 Zestawienie kanałów ze statystykami (średni)
+## [x] #9 Zestawienie kanałów ze statystykami (średni)
 
 Wyświetlenie statystyk kanałów w tabeli i możliwość ich sortowania
 
