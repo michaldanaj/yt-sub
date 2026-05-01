@@ -9,16 +9,23 @@
    pobierającą filmy z ostatnich `months * 30` dni, grupującą po kanale
    i obliczającą statystyki (`statistics.median` dla mediany).
 
-## Grupa 2: Widok — `tui.py`
+## Grupa 2: Nowy moduł `channel_stats.py`
 
-3. Dodaj klasę `ChannelStatsView` z metodami:
-   - `__init__(db, config, on_select_channel)` — ładuje dane, ustawia stan sortowania.
-   - `run(stdscr)` — własna pętla zdarzeń; zwraca `channel_id | None` po wyjściu.
-   - `_draw(stdscr)` — rysuje tabelę z nagłówkiem, wierszami i paskiem statusu.
-   - `_prompt_months(stdscr)` — mini-prompt dla klawisza `m`.
+3. Utwórz `src/yt_sub/channel_stats.py` z klasą `ChannelStatsView`:
+   - `__init__(db, config)` — ładuje dane przez `db.get_channel_stats_table`,
+     ustawia stan sortowania (kolumna 1, rosnąco).
+   - `run(stdscr) -> str | None` — własna pętla zdarzeń; zwraca
+     `channel_id` po Enter lub `None` po ESC/`a`.
+   - `_draw(stdscr)` — rysuje nagłówek, wiersze tabeli i pasek statusu.
+   - `_prompt_months(stdscr)` — mini-prompt dla klawisza `m`; zapisuje
+     do `config.json` i przeładowuje dane.
+
+## Grupa 3: Integracja z `tui.py`
+
 4. W `YouTubeTUI._handle_key` dodaj obsługę `a`:
-   - Uruchom `ChannelStatsView.run(stdscr)`.
-   - Jeśli zwróciło `channel_id`, ustaw `self.filter_channel_id` i odśwież listę.
+   - Zaimportuj i uruchom `ChannelStatsView(self.db, self.config).run(stdscr)`.
+   - Jeśli zwróciło `channel_id`, ustaw `self.filter_channel_id` i odśwież
+     `display_items`.
 
 ## Grupa 3: Konfiguracja
 

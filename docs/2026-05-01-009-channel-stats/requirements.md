@@ -107,12 +107,17 @@ zwracająca listę dataclass z polami:
 - `avg_non_short_per_month: float`
 - `median_duration_seconds: float | None`
 
+### `channel_stats.py` (nowy moduł)
+
+Klasa `ChannelStatsView` z całą logiką rysowania tabeli i obsługi klawiszy
+dla tego widoku. Analogicznie do wydzielenia `thumbnails.py` i `actions.py`
+z `tui.py`.
+
 ### `tui.py`
 
-Nowa klasa `ChannelStatsView` (lub metody w `YouTubeTUI`) obsługująca
-osobną pętlę rysowania i klawiszy dla tego widoku. `YouTubeTUI._handle_key`
-obsługuje `a` — przełącza flagę `show_channel_stats` i deleguje pętlę do
-nowego widoku.
+`YouTubeTUI._handle_key` obsługuje `a` — importuje `ChannelStatsView`
+i wywołuje `ChannelStatsView(...).run(stdscr)`. Po powrocie ewentualnie
+ustawia `filter_channel_id`.
 
 ---
 
