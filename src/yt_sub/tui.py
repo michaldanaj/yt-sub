@@ -123,14 +123,9 @@ class YouTubeTUI:
         filtered_videos = []
         q = self.filter_query.lower()
         for video in self.videos:
-            # If we are in "Watch Later" mode, ONLY show watch later videos.
-            if self.show_watch_later:
-                if video.watch_later:
-                    filtered_videos.append(video)
+            if self.show_watch_later and not video.watch_later:
                 continue
-
-            # Apply normal filters
-            if not self.show_shorts and video.duration_seconds < threshold:
+            if not self.show_watch_later and not self.show_shorts and video.duration_seconds < threshold:
                 continue
             if self.filter_channel_id and video.channel_id != self.filter_channel_id:
                 continue
