@@ -1,9 +1,31 @@
 import sqlite3
+import statistics
 import threading
+from collections import defaultdict
 from typing import Dict, List, Optional
-from datetime import datetime
-from .models import Channel, Video
+from datetime import datetime, timedelta
+from .models import Channel, Video, ChannelStatRow
 from . import paths
+
+
+def _parse_duration_seconds(duration: str) -> int:
+    """Parse a formatted duration string (``H:MM:SS`` or ``M:SS``) to seconds.
+
+    Args:
+        duration: Right-justified duration string as stored in the database.
+
+    Returns:
+        Total seconds, or ``0`` for unrecognised formats.
+    """
+    parts = duration.strip().split(":")
+    try:
+        if len(parts) == 3:
+            return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+        if len(parts) == 2:
+            return int(parts[0]) * 60 + int(parts[1])
+    except (ValueError, IndexError):
+        pass
+    return 0
 
 DB_PATH = str(paths.database_file())
 
@@ -288,6 +310,60 @@ class Database:
         cursor = self.conn.cursor()
         cursor.execute("SELECT id FROM videos WHERE watch_later = 1")
         return {row[0] for row in cursor.fetchall()}
+
+    def get_channels_stats_table(
+        self,
+        months: int,
+        threshold_seconds: int,
+    ) -> List[ChannelStatRow]:
+        """Returns per-channel statistics aggregated over the given period.
+
+        Computes average video counts per month and the median duration of
+        non-short videos for every channel in the database.  Channels with no
+        videos in the period still appear in the result with zero averages and
+        ``None`` median.
+
+        Args:
+            months: Number of months to look back (each month approximated as
+                30 days).
+            threshold_seconds: Videos shorter than this value are considered
+                Shorts and excluded from non-short counts and the median.
+
+        Returns:
+            List of :class:`ChannelStatRow`, one per channel, unsorted.
+        """
+        cutoff = (datetime.now() - timedelta(days=months * 30)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id, title FROM channels ORDER BY title ASC")
+        channels = [(row[0], row[1]) for row in cursor.fetchall()]
+
+        cursor.execute(
+            "SELECT channel_id, duration FROM videos WHERE published_at > ?",
+            (cutoff,),
+        )
+
+        # channel_id -> list of all duration_seconds in period
+        all_durations: Dict[str, List[int]] = defaultdict(list)
+        for channel_id, duration_str in cursor.fetchall():
+            all_durations[channel_id].append(_parse_duration_seconds(duration_str))
+
+        rows = []
+        for channel_id, channel_title in channels:
+            durations = all_durations.get(channel_id, [])
+            non_short = [d for d in durations if d >= threshold_seconds]
+
+            rows.append(ChannelStatRow(
+                channel_id=channel_id,
+                channel_title=channel_title,
+                avg_per_month=len(durations) / months,
+                avg_non_short_per_month=len(non_short) / months,
+                median_duration_seconds=statistics.median(non_short) if non_short else None,
+            ))
+
+        return rows
 
     def close(self) -> None:
         """Closes the underlying SQLite connection."""

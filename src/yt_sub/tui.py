@@ -85,7 +85,7 @@ class YouTubeTUI:
                 pass
         return {
             "colors": {"header": 103, "dot": 210, "duration": 150, "channel": 117, "title": 231, "selected_bg": 238, "detail_label": 103, "detail_value": 231},
-            "ui": {"pane_split_ratio": 0.5, "page_scroll_ratio": 0.8, "shorts_threshold_seconds": 90},
+            "ui": {"pane_split_ratio": 0.5, "page_scroll_ratio": 0.8, "shorts_threshold_seconds": 90, "stats_months": 3},
             "youtube": {"later_playlist_name": "Later", "later_playlist_id": ""},
         }
 
@@ -446,7 +446,7 @@ class YouTubeTUI:
         """
         """Renders a help overlay in the center of the screen."""
         sh, sw = stdscr.getmaxyx()
-        h, w = 21, 60
+        h, w = 22, 60
         y, x = (sh - h) // 2, (sw - w) // 2
 
         win = curses.newwin(h, w, y, x)
@@ -467,6 +467,7 @@ class YouTubeTUI:
             ("L", "Toggle Watch Later list view"),
             ("d", "Remove from Watch Later list"),
             ("y", "Yank (copy) video URL to clipboard"),
+            ("a", "Channel statistics table"),
             ("r / Ctrl+R", "Refresh (manual sync)"),
             ("s", "Toggle Shorts visibility"),
             ("S", "Set Shorts threshold"),
@@ -728,6 +729,17 @@ class YouTubeTUI:
             self._set_shorts_threshold(stdscr)
             self.display_items = self._get_display_list()
             self._reselect_nearest_visible(prev_id)
+            self.input_buffer = ""
+        elif key == ord('a'):
+            from .channels_stats import ChannelsStatsView, QUIT_SENTINEL
+            result = ChannelsStatsView(self.db, self.config).run(stdscr)
+            if result == QUIT_SENTINEL:
+                return True
+            if result is not None:
+                prev_id = self.selected_id
+                self.filter_channel_id = result
+                self.display_items = self._get_display_list()
+                self._reselect_nearest_visible(prev_id)
             self.input_buffer = ""
         elif key in (ord('r'), 18):  # 18 = Ctrl+R
             if self._sync_starter and not self.is_syncing:

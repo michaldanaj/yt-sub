@@ -107,3 +107,23 @@ class Video:
             URL string in the form ``https://www.youtube.com/watch?v=<id>``.
         """
         return f"https://www.youtube.com/watch?v={self.id}"
+
+
+@dataclass
+class ChannelStatRow:
+    """Aggregated statistics for a single channel over a given period.
+
+    Attributes:
+        channel_id: YouTube channel ID.
+        channel_title: Display name of the channel.
+        avg_per_month: Average number of all videos published per month.
+        avg_non_short_per_month: Average number of non-short videos per month.
+        median_duration_seconds: Median duration in seconds of non-short videos,
+            or ``None`` when there are no non-short videos in the period.
+    """
+
+    channel_id: str
+    channel_title: str
+    avg_per_month: float
+    avg_non_short_per_month: float
+    median_duration_seconds: Optional[float]
