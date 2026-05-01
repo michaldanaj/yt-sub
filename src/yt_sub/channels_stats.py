@@ -159,7 +159,10 @@ class ChannelsStatsView:
             if self._is_searching:
                 if key in (curses.KEY_BACKSPACE, 127, 8):
                     self._search_query = self._search_query[:-1]
-                elif key in (27, curses.KEY_ENTER, 10, 13):  # ESC or Enter — exit search, keep filter
+                elif key == 27:  # ESC — exit search and clear filter
+                    self._is_searching = False
+                    self._search_query = ""
+                elif key in (curses.KEY_ENTER, 10, 13):  # Enter — exit search, keep filter
                     self._is_searching = False
                 elif key == curses.KEY_DOWN:
                     self._selected = min(self._selected + 1, max(0, len(rows) - 1))
