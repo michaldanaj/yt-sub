@@ -73,7 +73,8 @@ class YouTubeTUI:
                 pass
         return {
             "colors": {"header": 103, "dot": 210, "duration": 150, "channel": 117, "title": 231, "selected_bg": 238, "detail_label": 103, "detail_value": 231},
-            "ui": {"pane_split_ratio": 0.5, "page_scroll_ratio": 0.8, "shorts_threshold_seconds": 90}
+            "ui": {"pane_split_ratio": 0.5, "page_scroll_ratio": 0.8, "shorts_threshold_seconds": 90},
+            "youtube": {"later_playlist_name": "Later", "later_playlist_id": ""},
         }
 
     def _init_colors(self) -> None:
@@ -514,6 +515,30 @@ class YouTubeTUI:
                     self.sync_progress = msg.get("message", "")
                     if redraw_level is None:
                         redraw_level = "status"
+                elif mtype == "later_sync_done":
+                    sync_result = msg.get("result")
+                    if sync_result is not None:
+                        parts = []
+                        if sync_result.added_locally:
+                            parts.append(f"+{sync_result.added_locally} lokalnie")
+                        if sync_result.removed_locally:
+                            parts.append(f"-{sync_result.removed_locally} lokalnie")
+                        if sync_result.added_to_yt:
+                            parts.append(f"+{sync_result.added_to_yt} na YT")
+                        if sync_result.removed_from_yt:
+                            parts.append(f"-{sync_result.removed_from_yt} na YT")
+                        summary = ", ".join(parts) if parts else "bez zmian"
+                        self.sync_progress = f"Later: {summary}"
+                        if sync_result.errors:
+                            self.sync_progress += f" ({len(sync_result.errors)} błędów)"
+                    # Reload videos to reflect any watch_later changes made during sync
+                    updated_videos = self.db.get_all_videos()
+                    video_dict = {v.id: v for v in updated_videos}
+                    for v in self.videos:
+                        if v.id in video_dict:
+                            v.watch_later = video_dict[v.id].watch_later
+                    self.display_items = self._get_display_list()
+                    redraw_level = "full"
                 elif mtype == "videos":
                     new_batch = msg.get("data", [])
                     if new_batch:

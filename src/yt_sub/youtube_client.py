@@ -310,6 +310,111 @@ class YouTubeClient:
                 ))
         return detailed_videos
 
+    def find_or_create_playlist(self, name: str) -> str:
+        """Finds a playlist by name or creates it if it does not exist.
+
+        Paginates through the user's playlists (``playlists.list``) to find
+        one matching *name* exactly.  Creates a new private playlist when no
+        match is found.
+
+        Args:
+            name: Display title of the playlist to find or create.
+
+        Returns:
+            The YouTube playlist ID (e.g. ``PLxxxxx``).
+        """
+        next_page_token = None
+        while True:
+            response = self.youtube.playlists().list(
+                part="snippet",
+                mine=True,
+                maxResults=50,
+                pageToken=next_page_token,
+            ).execute()
+
+            for item in response.get("items", []):
+                if item["snippet"]["title"] == name:
+                    return item["id"]
+
+            next_page_token = response.get("nextPageToken")
+            if not next_page_token:
+                break
+
+        # Not found — create it
+        response = self.youtube.playlists().insert(
+            part="snippet,status",
+            body={
+                "snippet": {"title": name},
+                "status": {"privacyStatus": "private"},
+            },
+        ).execute()
+        return response["id"]
+
+    def get_playlist_items(self, playlist_id: str) -> Dict[str, str]:
+        """Fetches all items from a playlist.
+
+        Paginates through ``playlistItems.list`` to collect every entry.
+
+        Args:
+            playlist_id: YouTube playlist ID.
+
+        Returns:
+            Mapping of ``video_id`` to ``playlist_item_id`` for all items
+            in the playlist.
+        """
+        result: Dict[str, str] = {}
+        next_page_token = None
+        while True:
+            response = self.youtube.playlistItems().list(
+                part="snippet,contentDetails",
+                playlistId=playlist_id,
+                maxResults=50,
+                pageToken=next_page_token,
+            ).execute()
+
+            for item in response.get("items", []):
+                video_id = item["contentDetails"]["videoId"]
+                playlist_item_id = item["id"]
+                result[video_id] = playlist_item_id
+
+            next_page_token = response.get("nextPageToken")
+            if not next_page_token:
+                break
+
+        return result
+
+    def add_to_playlist(self, playlist_id: str, video_id: str) -> str:
+        """Adds a video to a playlist and returns the new playlistItem ID.
+
+        Args:
+            playlist_id: Target YouTube playlist ID.
+            video_id: YouTube video ID to add.
+
+        Returns:
+            The ``playlistItem.id`` of the newly created item.
+        """
+        response = self.youtube.playlistItems().insert(
+            part="snippet",
+            body={
+                "snippet": {
+                    "playlistId": playlist_id,
+                    "resourceId": {
+                        "kind": "youtube#video",
+                        "videoId": video_id,
+                    },
+                }
+            },
+        ).execute()
+        return response["id"]
+
+    def remove_from_playlist(self, playlist_item_id: str) -> None:
+        """Removes a playlist item by its playlistItem ID.
+
+        Args:
+            playlist_item_id: The ``playlistItem.id`` to delete.
+        """
+        self.youtube.playlistItems().delete(id=playlist_item_id).execute()
+
     def sync_data(
         self,
         channels: List[Channel],

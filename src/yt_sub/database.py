@@ -81,6 +81,14 @@ class Database:
             )
         ''')
 
+        # Later sync snapshot table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS later_sync_snapshot (
+                video_id TEXT PRIMARY KEY,
+                playlist_item_id TEXT NOT NULL
+            )
+        ''')
+
         self.conn.commit()
 
     def save_channels(self, channels: List[Channel]) -> None:
@@ -240,6 +248,46 @@ class Database:
 
         counts = {row[0]: row[1] / 90.0 for row in cursor.fetchall()}
         return counts
+
+    def get_later_snapshot(self) -> Dict[str, str]:
+        """Returns the stored snapshot of the YouTube Later playlist.
+
+        Returns:
+            Mapping of ``video_id`` to ``playlist_item_id`` from the last sync.
+            Empty dict if no sync has occurred yet.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT video_id, playlist_item_id FROM later_sync_snapshot")
+        return {row[0]: row[1] for row in cursor.fetchall()}
+
+    def save_later_snapshot(self, snapshot: Dict[str, str]) -> None:
+        """Atomically replaces the Later sync snapshot.
+
+        Clears the entire table and inserts the new snapshot in a single
+        transaction to avoid partial state on failure.
+
+        Args:
+            snapshot: Mapping of ``video_id`` to ``playlist_item_id``
+                representing the current state of the YouTube playlist.
+        """
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM later_sync_snapshot")
+            cursor.executemany(
+                "INSERT INTO later_sync_snapshot (video_id, playlist_item_id) VALUES (?, ?)",
+                snapshot.items()
+            )
+            self.conn.commit()
+
+    def get_watch_later_ids(self) -> set:
+        """Returns the set of video IDs currently marked as watch-later.
+
+        Returns:
+            Set of ``video_id`` strings where ``watch_later = 1``.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id FROM videos WHERE watch_later = 1")
+        return {row[0] for row in cursor.fetchall()}
 
     def close(self) -> None:
         """Closes the underlying SQLite connection."""
