@@ -16,6 +16,33 @@ Po instalacji desktopowej (`./install.sh`) komenda `yt-sub` jest dostępna globa
 
 W pliku docs/SPECIFICATION.md znajduje się specyfikacja programu, którą przeważnie ty zarządzasz. Jeśli dodam jakieś wymaganie, doprecyzowanie jakiejś kwestii, po wykonaniu zadania dodaj odpowiednią aktualizację do specyfikacji. Specyfikacja powinna być tak napisana, że programista na jej podstawie odtworzy wszystkie funkcjonalności aplikacji.
 
+# Worflow pracy
+
+Jeśli pracujemy nad nowym feature, kroki taki:
+
+* Stworzenie specyfikacji pod feature (patrz Nowy feature poniżej)
+* Akceptacja specyfikacji przez człowieka
+* Wykonanie implementacji
+
+# Nowy feature
+
+W doc/TODO.py są nowe funkcjonalności do implementacji. Znajdź specyfikację w tym pliku przy implementacji nowej. Zrób gałąź git, pytaj mnie o specyfikację
+feature.
+
+Stwórz:
+
+- Nowy katalog YYYY-MM-DD-feature-name w docs/ dla prac nad tym feature
+- W tym katalogu:
+    - `plan.md` seria ponumerowanych grup zadań
+    - `requirements.md` dla zakresu, decyzji i kotekstu
+    - `validation.md` aby określić czy implementacja jest poprawna i można
+      zrobić merge
+
+Odnieś się do docs/SPECIFICATION.md, oraz istniejących specyfikaji feature'ów dla wskazówek.
+
+Ważne: _musisz_ używać narzędzia AskUserQuestions,
+zanim zapiszesz na dysk.
+
 # git
 
 Jeśli poproszę o dokonanie jakiejś zmiany, zrób nową gałąź git, w której będziemy iterować aż do poprawnego rozwiązania. Po każdej modyfikacji kodu rób commit-a, żeby później łatwo można było wrócić do poprzednich wersji. Na koniec zapytaj mnie czy poprawki działają i jeśli uznam że modyfikacja jest poprawna, podbij numer wersji programu w pyproject.toml i zrób merge do master z no-ff.
