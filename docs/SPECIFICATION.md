@@ -113,6 +113,7 @@ Filmy pogrupowane nagłówkami dat w formacie `--- YYYY-MM-DD ---`.
 | `d` | Usunięcie wybranego filmu z listy "Watch Later" |
 | `s` | Przełączenie widoczności Shortów (filmów poniżej progu czasu) |
 | `S` | Ustawienie progu czasu dla Shortów (w sekundach; zapisywane do `config.json`) |
+| `a` | Otwarcie widoku statystyk kanałów (tabela); `ESC`/`a` wraca, `Enter` ustawia filtr kanału |
 | `r` / `Ctrl+R` | Ręczne wyzwolenie pełnej synchronizacji (filmy + Later sync); ignorowane gdy sync już trwa |
 | `b` | Przełączenie filtrowania tylko do filmów z aktualnego kanału |
 | `/` | Wejście w tryb live search (filtrowanie po tytule lub nazwie kanału) |
@@ -241,6 +242,55 @@ Wątek sync wysyła do `sync_queue` wiadomość `{"type": "later_sync_done", "re
 #### Obsługa błędów
 
 Błąd przy konkretnej operacji (np. nieudane dodanie jednego filmu) jest dołączany do `SyncResult.errors`, pozostałe operacje są kontynuowane. Jeśli całkowity fetch YouTube nie powiedzie się, sync jest pomijany (snapshot bez zmian). Błędy logowane są do `~/.cache/yt-sub/sync_error.log`.
+
+### 5.4. Widok statystyk kanałów (`channels_stats.py`)
+
+Klawisz `a` otwiera osobny widok tabelaryczny z zagregowanymi statystykami wszystkich kanałów. Widok obsługiwany przez klasę `ChannelsStatsView` w module `channels_stats.py`.
+
+#### Kolumny
+
+| # | Nagłówek | Zawartość |
+|---|----------|-----------|
+| 1 | `Channel` | Nazwa kanału |
+| 2 | `Avg/mo` | Średnia liczba wszystkich filmów na miesiąc |
+| 3 | `Non-short/mo` | Średnia liczba filmów niebędących shortami na miesiąc |
+| 4 | `Median dur` | Mediana czasu trwania filmów niebędących shortami (`M:SS`/`H:MM:SS`, 7 znaków) |
+
+Shorty definiowane są przez `shorts_threshold_seconds` z `config.json`. Okres analizy: ostatnie `N * 30` dni (domyślnie `stats_months = 3` z `config.json`).
+
+#### Skróty w widoku statystyk
+
+| Klawisz | Akcja |
+|---------|-------|
+| `j` / `k` / strzałki | Nawigacja po wierszach |
+| `1`–`4` | Sortowanie po kolumnie; ponowne wciśnięcie odwraca kierunek (`▲`/`▼` w nagłówku) |
+| `m` | Prompt zmiany okresu statystyk (`1–24` miesięcy); zapisuje `stats_months` do `config.json` |
+| `S` | Prompt zmiany progu Shorts; zapisuje `shorts_threshold_seconds` do `config.json` |
+| `Enter` | Powrót do głównej listy z filtrem wybranego kanału |
+| `a` / `ESC` | Powrót do głównej listy bez zmian filtrów |
+| `q` | Wyjście z aplikacji |
+
+#### Konfiguracja
+
+Nowy klucz w sekcji `"ui"` pliku `config.json`:
+
+```json
+"ui": {
+    ...
+    "stats_months": 3
+}
+```
+
+#### Obliczenia
+
+- **Avg/mo**: `count(wszystkie filmy w okresie) / N`
+- **Non-short/mo**: `count(filmy z duration_seconds ≥ threshold) / N`
+- **Median dur**: `statistics.median` wartości `duration_seconds` niebędących shortami; `—` gdy brak takich filmów w okresie
+- Kanały bez filmów w okresie wyświetlają `0.0` / `0.0` / `—`
+
+#### Integracja
+
+Po powrocie przez `Enter` TUI ustawia `filter_channel_id` na wybrany kanał i odświeża `display_items`. Przed wejściem do widoku wysyłany jest Kitty delete (`a=d,d=A`); po powrocie `_thumb_kitty_cache` jest czyszczone, wymuszając ponowne renderowanie miniatury.
 
 ## 6. Argumenty Wiersza Poleceń
 | Argument | Opis |
