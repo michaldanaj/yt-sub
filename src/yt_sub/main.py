@@ -17,6 +17,8 @@ logging.basicConfig(
     format="%(asctime)s %(name)s %(levelname)s: %(message)s",
 )
 
+logger = logging.getLogger(__name__)
+
 from .youtube_client import YouTubeClient
 from .database import Database
 from .tui import start_tui, THUMB_CACHE_DIR

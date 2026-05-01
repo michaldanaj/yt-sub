@@ -112,7 +112,7 @@ def sync_later(db: Database, yt: YouTubeClient, config: Dict[str, Any]) -> SyncR
     # Step 2: Fetch Y from YouTube, filter to locally known IDs
     try:
         Y_raw: Dict[str, str] = yt.get_playlist_items(playlist_id)
-    except googleapiclient.errors.HttpError as e:
+    except Exception as e:
         result.errors.append(f"Failed to fetch playlist items: {e}")
         return result
 
@@ -152,15 +152,17 @@ def sync_later(db: Database, yt: YouTubeClient, config: Dict[str, Any]) -> SyncR
             item_id = yt.add_to_playlist(playlist_id, vid_id)
             new_item_ids[vid_id] = item_id
             result.added_to_yt += 1
-        except googleapiclient.errors.HttpError as e:
+        except Exception as e:
             result.errors.append(f"Failed to add {vid_id} to playlist: {e}")
+            logger.warning("later_sync add_to_playlist failed for %s: %s", vid_id, e)
 
     for vid_id in local_removed:
         try:
             yt.remove_from_playlist(S[vid_id])
             result.removed_from_yt += 1
-        except googleapiclient.errors.HttpError as e:
+        except Exception as e:
             result.errors.append(f"Failed to remove {vid_id} from playlist: {e}")
+            logger.warning("later_sync remove_from_playlist failed for %s: %s", vid_id, e)
 
     # Step 6: Build and persist new snapshot
     new_S: Dict[str, str] = {vid: iid for vid, iid in Y.items()}
