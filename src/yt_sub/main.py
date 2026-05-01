@@ -17,10 +17,13 @@ logging.basicConfig(
     format="%(asctime)s %(name)s %(levelname)s: %(message)s",
 )
 
+logger = logging.getLogger(__name__)
+
 from .youtube_client import YouTubeClient
 from .database import Database
 from .tui import start_tui, THUMB_CACHE_DIR
 from .models import Video
+from .later_sync import sync_later
 
 # Number of parallel thumbnail downloads; kept below SYNC_MAX_WORKERS
 # to avoid hammering i.ytimg.com during a large initial sync.
@@ -80,6 +83,7 @@ def background_sync(
     client: YouTubeClient,
     sync_queue: queue.Queue,
     sync_start_rfc3339: Optional[str],
+    config: Optional[dict] = None,
 ) -> None:
     """Runs a full sync in the calling thread and posts results to *sync_queue*.
 
@@ -88,6 +92,7 @@ def background_sync(
 
     - ``{"type": "progress", "message": str}`` — status updates.
     - ``{"type": "videos", "data": List[Video]}`` — newly synced videos.
+    - ``{"type": "later_sync_done", "result": SyncResult}`` — Later sync summary.
     - ``{"type": "done"}`` — always sent last, even on error.
 
     Args:
@@ -96,6 +101,8 @@ def background_sync(
         sync_queue: Queue shared with the TUI for inter-thread communication.
         sync_start_rfc3339: ISO 8601 lower bound for the sync window.
             ``None`` fetches all available history.
+        config: Parsed application config dict passed to :func:`sync_later`.
+            When ``None`` the Later sync is skipped.
     """
     def progress(msg: str) -> None:
         sync_queue.put({"type": "progress", "message": msg})
@@ -130,6 +137,19 @@ def background_sync(
                 raise e
 
         db.set_last_update(now_rfc3339)
+
+        # Sync Later playlist with YouTube (two-way)
+        if config is not None:
+            progress("Syncing Later playlist with YouTube...")
+            try:
+                later_result = sync_later(db, client, config)
+                sync_queue.put({"type": "later_sync_done", "result": later_result})
+                if later_result.errors:
+                    for err in later_result.errors:
+                        logger.warning("later_sync error: %s", err)
+            except Exception as e:
+                progress(f"Later sync error: {str(e)}")
+                logger.exception("later_sync failed")
 
     except Exception as e:
         import traceback
@@ -215,11 +235,22 @@ def main() -> None:
             print(f"[{v.duration}] {v.channel_title} - {v.title}")
         db.close()
     else:
+        # Load config for Later sync (TUI also loads it, but we need it here for the sync thread)
+        import json as _json
+        _config_path = str(paths.config_file())
+        try:
+            with open(_config_path, "r") as _f:
+                _config = _json.load(_f)
+        except (FileNotFoundError, _json.JSONDecodeError):
+            _config = {}
+        if "youtube" not in _config:
+            _config["youtube"] = {"later_playlist_name": "Later", "later_playlist_id": ""}
+
         # Start TUI and background sync
         sync_queue = queue.Queue()
         sync_thread = threading.Thread(
             target=background_sync,
-            args=(db, client, sync_queue, sync_start_rfc3339),
+            args=(db, client, sync_queue, sync_start_rfc3339, _config),
             daemon=True
         )
         sync_thread.start()

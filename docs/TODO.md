@@ -7,7 +7,16 @@ kursor.
 - Nazwa listy na YouTube jest konfigurowalna. Jeśli nie istnieje, utworzenie jej
 - Po uruchomieniu aplikacji, następuje synchronizacja z listą
 - Algorytm synchronizacji musi uwzględniać możliwość dodania lub usuwania filmu
-  poza aplikacją
+  poza aplikacją i odpowiednio synchronizować zmiany lokalnie
+
+## Natychmiastowy sync Later przy lokalnej zmianie
+
+Gdy użytkownik dodaje (`l`) lub usuwa (`d` z widoku Later) film z lokalnej listy
+Later, zmiana powinna być od razu propagowana do playlisty na YouTube (bez
+czekania na pełny sync przy starcie). Wywołanie API w tle, żeby nie blokować TUI.
+
+Uwaga: wymaga dostępu do `YouTubeClient` i snapshootu z poziomu obsługi klawisza
+w TUI — warto ocenić czy nie psuje architektury za bardzo zanim się implementuje.
 
 ## Przeskakiwanie
 
@@ -53,7 +62,17 @@ możliwość edycji tego.
 
 ## Ściąganie za wybrany okres z gui dla wybranego kanału
 
-## Odświeżenie zawartości
+## Odświeżenie zawartości (ręczna synchronizacja)
+
+Skrót klawiszowy `r` / `Ctrl+R` uruchamia pełną synchronizację na żądanie,
+bez potrzeby restartu aplikacji. Synchronizacja obejmuje:
+
+- Pobranie nowych filmów z kanałów (jak przy starcie)
+- Synchronizację listy Later z YouTube (two-way sync)
+
+Sync odbywa się w tle — TUI pozostaje responsywne, pasek statusu pokazuje
+postęp i wynik. Jeśli sync już trwa, ponowne wciśnięcie `r`/`Ctrl+R` jest
+ignorowane.
 
 ## Zestawienie kanałów ze statystykami
 
