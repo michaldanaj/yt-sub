@@ -163,6 +163,65 @@ def background_sync(
         sync_queue.put({"type": "done"})
 
 
+def calc_sync_start(db: Database) -> Optional[str]:
+    """Calculates the RFC 3339 lower bound for the next sync window.
+
+    Returns the date of the last successful sync minus a 24-hour overlap
+    window (to catch metadata updates for recently published live streams).
+    Returns ``None`` when there is no prior sync, which causes
+    :func:`background_sync` to fetch all available history.
+
+    Args:
+        db: Open database connection used to read the last-update timestamp.
+
+    Returns:
+        RFC 3339 timestamp string (``YYYY-MM-DDTHH:MM:SSZ``) or ``None``.
+    """
+    last_update = db.get_last_update()
+    if not last_update:
+        return None
+    try:
+        dt = datetime.strptime(last_update, "%Y-%m-%dT%H:%M:%SZ")
+        overlap_ts = dt.replace(tzinfo=timezone.utc).timestamp() - (24 * 3600)
+        return datetime.fromtimestamp(overlap_ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return last_update
+
+
+def make_sync_starter(
+    db: Database,
+    client: YouTubeClient,
+    config: dict,
+    sync_queue: queue.Queue,
+) -> "Callable[[], threading.Thread]":
+    """Returns a zero-argument callable that starts a background sync thread.
+
+    Each call to the returned callable computes a fresh sync-start date,
+    launches a new daemon thread running :func:`background_sync`, and returns
+    that thread.  The TUI uses this to re-trigger sync on ``r``/``Ctrl+R``
+    without holding references to ``client`` or ``config`` itself.
+
+    Args:
+        db: Open database connection shared with the TUI.
+        client: Authenticated YouTube API client.
+        config: Parsed application config dict.
+        sync_queue: Queue shared with the TUI for inter-thread communication.
+
+    Returns:
+        A callable ``() -> threading.Thread``.
+    """
+    def _start() -> threading.Thread:
+        sync_start = calc_sync_start(db)
+        t = threading.Thread(
+            target=background_sync,
+            args=(db, client, sync_queue, sync_start, config),
+            daemon=True,
+        )
+        t.start()
+        return t
+    return _start
+
+
 def main() -> None:
     """Entry point — parses CLI arguments and starts the TUI or sync-only mode.
 
@@ -195,17 +254,7 @@ def main() -> None:
             print("Invalid date format. Use YYYY-MM-DD.")
             sys.exit(1)
     else:
-        last_update = db.get_last_update()
-        if last_update:
-            # Overlap sync by 24 hours to catch metadata updates (like duration for finished live streams)
-            try:
-                dt = datetime.strptime(last_update, "%Y-%m-%dT%H:%M:%SZ")
-                overlap_dt = dt.replace(tzinfo=timezone.utc).timestamp() - (24 * 3600)
-                sync_start_rfc3339 = datetime.fromtimestamp(overlap_dt, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            except ValueError:
-                sync_start_rfc3339 = last_update
-        else:
-            sync_start_rfc3339 = None
+        sync_start_rfc3339 = calc_sync_start(db)
 
     if args.display_channels:
         print("\n--- Channels in Database ---")
@@ -248,14 +297,16 @@ def main() -> None:
 
         # Start TUI and background sync
         sync_queue = queue.Queue()
+        sync_starter = make_sync_starter(db, client, _config, sync_queue)
+
         sync_thread = threading.Thread(
             target=background_sync,
             args=(db, client, sync_queue, sync_start_rfc3339, _config),
-            daemon=True
+            daemon=True,
         )
         sync_thread.start()
 
-        start_tui(all_videos, db, sync_queue)
+        start_tui(all_videos, db, sync_queue, sync_starter=sync_starter)
         db.close()
 
 

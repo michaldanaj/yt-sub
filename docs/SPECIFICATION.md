@@ -113,6 +113,7 @@ Filmy pogrupowane nagłówkami dat w formacie `--- YYYY-MM-DD ---`.
 | `d` | Usunięcie wybranego filmu z listy "Watch Later" |
 | `s` | Przełączenie widoczności Shortów (filmów poniżej progu czasu) |
 | `S` | Ustawienie progu czasu dla Shortów (w sekundach; zapisywane do `config.json`) |
+| `r` / `Ctrl+R` | Ręczne wyzwolenie pełnej synchronizacji (filmy + Later sync); ignorowane gdy sync już trwa |
 | `b` | Przełączenie filtrowania tylko do filmów z aktualnego kanału |
 | `/` | Wejście w tryb live search (filtrowanie po tytule lub nazwie kanału) |
 | `PageUp` / `Ctrl+b` | Przewinięcie o pełną stronę w górę |

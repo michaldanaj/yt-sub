@@ -6,7 +6,8 @@ import queue
 import re
 import sys
 import math
-from typing import Dict, Any, List, Optional, Tuple
+import threading
+from typing import Callable, Dict, Any, List, Optional, Tuple
 from datetime import datetime, timezone
 from .models import Video
 from .database import Database
@@ -31,7 +32,13 @@ class YouTubeTUI:
             left pane; each entry is ``{"type": "header"|"video", "content": ...}``.
     """
 
-    def __init__(self, videos: List[Video], db: Database, sync_queue: Optional[queue.Queue] = None) -> None:
+    def __init__(
+        self,
+        videos: List[Video],
+        db: Database,
+        sync_queue: Optional[queue.Queue] = None,
+        sync_starter: Optional[Callable[[], threading.Thread]] = None,
+    ) -> None:
         """Initialises state from the pre-loaded video list.
 
         Args:
@@ -39,6 +46,10 @@ class YouTubeTUI:
             db: Open database connection used to persist watch-later changes.
             sync_queue: Queue from which background sync messages are read.
                 Pass ``None`` to start without a sync in progress.
+            sync_starter: Zero-argument callable that starts a new background
+                sync thread and returns it.  Used by ``r``/``Ctrl+R`` to
+                re-trigger sync without restarting the application.  When
+                ``None``, manual sync is disabled.
         """
         self.db = db
         self.videos = videos
@@ -56,6 +67,7 @@ class YouTubeTUI:
         self.sync_queue = sync_queue
         self.is_syncing = False if sync_queue is None else True
         self.sync_progress = ""
+        self._sync_starter = sync_starter
         self._thumb_kitty_cache: Dict[tuple, Any] = {}  # (video_id, cols, rows) -> bytes or None
 
     def _load_config(self) -> Dict[str, Any]:
@@ -434,7 +446,7 @@ class YouTubeTUI:
         """
         """Renders a help overlay in the center of the screen."""
         sh, sw = stdscr.getmaxyx()
-        h, w = 19, 60
+        h, w = 21, 60
         y, x = (sh - h) // 2, (sw - w) // 2
 
         win = curses.newwin(h, w, y, x)
@@ -455,6 +467,7 @@ class YouTubeTUI:
             ("L", "Toggle Watch Later list view"),
             ("d", "Remove from Watch Later list"),
             ("y", "Yank (copy) video URL to clipboard"),
+            ("r / Ctrl+R", "Refresh (manual sync)"),
             ("s", "Toggle Shorts visibility"),
             ("S", "Set Shorts threshold"),
             ("b", "Toggle filter by current channel"),
@@ -715,6 +728,11 @@ class YouTubeTUI:
             self._set_shorts_threshold(stdscr)
             self.display_items = self._get_display_list()
             self._reselect_nearest_visible(prev_id)
+            self.input_buffer = ""
+        elif key in (ord('r'), 18):  # 18 = Ctrl+R
+            if self._sync_starter and not self.is_syncing:
+                self.is_syncing = True
+                self._sync_starter()
             self.input_buffer = ""
         elif key == ord('b'):
             prev_id = self.selected_id
@@ -1011,7 +1029,12 @@ class YouTubeTUI:
             if self._handle_key(key, count, stdscr):
                 break
 
-def start_tui(videos: List[Video], db: Database, sync_queue: Optional[queue.Queue] = None) -> None:
+def start_tui(
+    videos: List[Video],
+    db: Database,
+    sync_queue: Optional[queue.Queue] = None,
+    sync_starter: Optional[Callable[[], threading.Thread]] = None,
+) -> None:
     """Launches the TUI via :func:`curses.wrapper`.
 
     Sets ``TERM`` and ``ESCDELAY`` environment variables if not already
@@ -1022,8 +1045,11 @@ def start_tui(videos: List[Video], db: Database, sync_queue: Optional[queue.Queu
         db: Open database connection passed through to the TUI.
         sync_queue: Queue for background sync messages; ``None`` if no sync
             is running.
+        sync_starter: Zero-argument callable that starts a new background sync
+            thread; passed through to :class:`YouTubeTUI` for ``r``/``Ctrl+R``
+            handling.  ``None`` disables manual sync.
     """
     if not videos: videos = []
     os.environ.setdefault('TERM', 'xterm-256color')
     os.environ.setdefault('ESCDELAY', '25')
-    curses.wrapper(lambda stdscr: YouTubeTUI(videos, db, sync_queue).run(stdscr))
+    curses.wrapper(lambda stdscr: YouTubeTUI(videos, db, sync_queue, sync_starter).run(stdscr))

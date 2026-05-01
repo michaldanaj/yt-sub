@@ -62,7 +62,7 @@ możliwość edycji tego.
 
 ## [ ] #7 Ściąganie za wybrany okres z gui dla wybranego kanału (średni)
 
-## [ ] #8 Odświeżenie zawartości — ręczna synchronizacja (mały)
+## [x] #8 Odświeżenie zawartości — ręczna synchronizacja (mały)
 
 Skrót klawiszowy `r` / `Ctrl+R` uruchamia pełną synchronizację na żądanie,
 bez potrzeby restartu aplikacji. Synchronizacja obejmuje:
