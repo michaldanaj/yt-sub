@@ -99,7 +99,7 @@ Nowy klucz w sekcji `"ui"` pliku `config.json`:
 
 ### `database.py`
 
-Nowa metoda `get_channel_stats_table(months: int, threshold_seconds: int) -> list[ChannelStatRow]`
+Nowa metoda `get_channels_stats_table(months: int, threshold_seconds: int) -> list[ChannelStatRow]`
 zwracająca listę dataclass z polami:
 - `channel_id: str`
 - `channel_title: str`
@@ -107,16 +107,16 @@ zwracająca listę dataclass z polami:
 - `avg_non_short_per_month: float`
 - `median_duration_seconds: float | None`
 
-### `channel_stats.py` (nowy moduł)
+### `channels_stats.py` (nowy moduł)
 
-Klasa `ChannelStatsView` z całą logiką rysowania tabeli i obsługi klawiszy
+Klasa `ChannelsStatsView` z całą logiką rysowania tabeli i obsługi klawiszy
 dla tego widoku. Analogicznie do wydzielenia `thumbnails.py` i `actions.py`
 z `tui.py`.
 
 ### `tui.py`
 
-`YouTubeTUI._handle_key` obsługuje `a` — importuje `ChannelStatsView`
-i wywołuje `ChannelStatsView(...).run(stdscr)`. Po powrocie ewentualnie
+`YouTubeTUI._handle_key` obsługuje `a` — importuje `ChannelsStatsView`
+i wywołuje `ChannelsStatsView(...).run(stdscr)`. Po powrocie ewentualnie
 ustawia `filter_channel_id`.
 
 ---
