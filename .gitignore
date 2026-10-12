@@ -10,7 +10,7 @@ wheels/
 .venv
 
 credentials.pickle
-client_secret_475291016858-5pnovc0dlqgsgv8m933qfk4u8uvs779r.apps.googleusercontent.com.json
+client_secret*.json
 playlist_cache.json
 youtube_monitor.db
 

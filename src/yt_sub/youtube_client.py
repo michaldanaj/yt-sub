@@ -87,7 +87,9 @@ class YouTubeClient:
             )
         return self._thread_local.youtube
 
-    def get_subscriptions(self, progress_callback: Optional[Callable[[str], None]] = None) -> List[Channel]:
+    def get_subscriptions(
+        self, progress_callback: Optional[Callable[[str], None]] = None
+    ) -> List[Channel]:
         """Fetches detailed information for all subscribed channels.
 
         Paginates through the ``subscriptions.list`` endpoint to collect every
@@ -104,11 +106,16 @@ class YouTubeClient:
         all_channel_ids = []
         next_page_token = None
 
-        if progress_callback: progress_callback("Fetching subscription IDs...")
+        if progress_callback:
+            progress_callback("Fetching subscription IDs...")
         while True:
-            response = self.youtube.subscriptions().list(
-                part="snippet", mine=True, maxResults=50, pageToken=next_page_token
-            ).execute()
+            response = (
+                self.youtube.subscriptions()
+                .list(
+                    part="snippet", mine=True, maxResults=50, pageToken=next_page_token
+                )
+                .execute()
+            )
 
             for item in response["items"]:
                 all_channel_ids.append(item["snippet"]["resourceId"]["channelId"])
@@ -117,33 +124,49 @@ class YouTubeClient:
             if not next_page_token:
                 break
 
-        if progress_callback: progress_callback(f"Fetching details for {len(all_channel_ids)} channels...")
+        if progress_callback:
+            progress_callback(
+                f"Fetching details for {len(all_channel_ids)} channels..."
+            )
         channels = []
         for i in range(0, len(all_channel_ids), 50):
-            batch_ids = all_channel_ids[i:i+50]
-            response = self.youtube.channels().list(
-                part="snippet,contentDetails,statistics",
-                id=",".join(batch_ids)
-            ).execute()
+            batch_ids = all_channel_ids[i : i + 50]
+            response = (
+                self.youtube.channels()
+                .list(part="snippet,contentDetails,statistics", id=",".join(batch_ids))
+                .execute()
+            )
 
             for item in response.get("items", []):
                 snippet = item.get("snippet", {})
                 stats = item.get("statistics", {})
                 content = item.get("contentDetails", {})
 
-                channels.append(Channel(
-                    id=item["id"],
-                    title=snippet.get("title", ""),
-                    description=snippet.get("description"),
-                    custom_url=snippet.get("customUrl"),
-                    published_at=snippet.get("publishedAt"),
-                    thumbnail_url=snippet.get("thumbnails", {}).get("high", {}).get("url"),
-                    view_count=int(stats.get("viewCount", 0)) if stats.get("viewCount") else None,
-                    subscriber_count=int(stats.get("subscriberCount", 0)) if stats.get("subscriberCount") else None,
-                    video_count=int(stats.get("videoCount", 0)) if stats.get("videoCount") else None,
-                    uploads_playlist_id=content.get("relatedPlaylists", {}).get("uploads"),
-                    raw_json=json.dumps(item)
-                ))
+                channels.append(
+                    Channel(
+                        id=item["id"],
+                        title=snippet.get("title", ""),
+                        description=snippet.get("description"),
+                        custom_url=snippet.get("customUrl"),
+                        published_at=snippet.get("publishedAt"),
+                        thumbnail_url=snippet.get("thumbnails", {})
+                        .get("high", {})
+                        .get("url"),
+                        view_count=int(stats.get("viewCount", 0))
+                        if stats.get("viewCount")
+                        else None,
+                        subscriber_count=int(stats.get("subscriberCount", 0))
+                        if stats.get("subscriberCount")
+                        else None,
+                        video_count=int(stats.get("videoCount", 0))
+                        if stats.get("videoCount")
+                        else None,
+                        uploads_playlist_id=content.get("relatedPlaylists", {}).get(
+                            "uploads"
+                        ),
+                        raw_json=json.dumps(item),
+                    )
+                )
         return channels
 
     def _parse_duration(self, duration: str) -> str:
@@ -158,7 +181,7 @@ class YouTubeClient:
             e.g. ``  3:45`` or ``1:02:33``.  Returns ``"   0:00"`` for
             unrecognised input.
         """
-        match = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration)
+        match = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", duration)
         if not match:
             return "   0:00"
         h, m, s = [int(x) if x else 0 for x in match.groups()]
@@ -206,7 +229,9 @@ class YouTubeClient:
             days_passed = 1  # Minimum 1 day
             if published_after:
                 try:
-                    last_refresh = datetime.strptime(published_after, "%Y-%m-%dT%H:%M:%SZ")
+                    last_refresh = datetime.strptime(
+                        published_after, "%Y-%m-%dT%H:%M:%SZ"
+                    )
                     delta = datetime.now() - last_refresh
                     days_passed = max(1, (delta.days + (1 if delta.seconds > 0 else 0)))
                 except ValueError:
@@ -224,12 +249,16 @@ class YouTubeClient:
 
         try:
             while True:
-                response = youtube.playlistItems().list(
-                    part="snippet,contentDetails",
-                    playlistId=playlist_id,
-                    maxResults=max_results,
-                    pageToken=next_page_token
-                ).execute()
+                response = (
+                    youtube.playlistItems()
+                    .list(
+                        part="snippet,contentDetails",
+                        playlistId=playlist_id,
+                        maxResults=max_results,
+                        pageToken=next_page_token,
+                    )
+                    .execute()
+                )
 
                 items = response.get("items", [])
                 if not items:
@@ -238,7 +267,10 @@ class YouTubeClient:
                 batch_finished = False
                 for item in items:
                     # ISO 8601 strings in YYYY-MM-DDTHH:MM:SSZ format compare correctly as plain strings
-                    video_pub_at = item["contentDetails"].get("videoPublishedAt") or item["snippet"]["publishedAt"]
+                    video_pub_at = (
+                        item["contentDetails"].get("videoPublishedAt")
+                        or item["snippet"]["publishedAt"]
+                    )
                     if published_after and video_pub_at < published_after:
                         batch_finished = True
                         break
@@ -256,7 +288,12 @@ class YouTubeClient:
                     break
 
         except googleapiclient.errors.HttpError as e:
-            logger.warning("HttpError fetching playlist %s (channel %s): %s", playlist_id, channel.id, e)
+            logger.warning(
+                "HttpError fetching playlist %s (channel %s): %s",
+                playlist_id,
+                channel.id,
+                e,
+            )
 
         return videos, channel.id, latest_video_date
 
@@ -282,11 +319,12 @@ class YouTubeClient:
         detailed_videos = []
 
         for i in range(0, len(video_ids), 50):
-            batch_ids = video_ids[i:i+50]
-            response = self.youtube.videos().list(
-                part="snippet,contentDetails,statistics",
-                id=",".join(batch_ids)
-            ).execute()
+            batch_ids = video_ids[i : i + 50]
+            response = (
+                self.youtube.videos()
+                .list(part="snippet,contentDetails,statistics", id=",".join(batch_ids))
+                .execute()
+            )
 
             for item in response.get("items", []):
                 snippet = item.get("snippet", {})
@@ -294,20 +332,30 @@ class YouTubeClient:
                 content = item.get("contentDetails", {})
                 vid_id = item["id"]
 
-                detailed_videos.append(Video(
-                    id=vid_id,
-                    channel_id=snippet.get("channelId", ""),
-                    title=snippet.get("title", ""),
-                    description=snippet.get("description"),
-                    published_at=snippet.get("publishedAt", ""),
-                    duration=self._parse_duration(content.get("duration", "")),
-                    thumbnail_url=snippet.get("thumbnails", {}).get("high", {}).get("url"),
-                    view_count=int(stats.get("viewCount", 0)) if stats.get("viewCount") else None,
-                    like_count=int(stats.get("likeCount", 0)) if stats.get("likeCount") else None,
-                    comment_count=int(stats.get("commentCount", 0)) if stats.get("commentCount") else None,
-                    channel_title=snippet.get("channelTitle", ""),
-                    raw_json=json.dumps(item)
-                ))
+                detailed_videos.append(
+                    Video(
+                        id=vid_id,
+                        channel_id=snippet.get("channelId", ""),
+                        title=snippet.get("title", ""),
+                        description=snippet.get("description"),
+                        published_at=snippet.get("publishedAt", ""),
+                        duration=self._parse_duration(content.get("duration", "")),
+                        thumbnail_url=snippet.get("thumbnails", {})
+                        .get("high", {})
+                        .get("url"),
+                        view_count=int(stats.get("viewCount", 0))
+                        if stats.get("viewCount")
+                        else None,
+                        like_count=int(stats.get("likeCount", 0))
+                        if stats.get("likeCount")
+                        else None,
+                        comment_count=int(stats.get("commentCount", 0))
+                        if stats.get("commentCount")
+                        else None,
+                        channel_title=snippet.get("channelTitle", ""),
+                        raw_json=json.dumps(item),
+                    )
+                )
         return detailed_videos
 
     def find_or_create_playlist(self, name: str) -> str:
@@ -325,12 +373,16 @@ class YouTubeClient:
         """
         next_page_token = None
         while True:
-            response = self.youtube.playlists().list(
-                part="snippet",
-                mine=True,
-                maxResults=50,
-                pageToken=next_page_token,
-            ).execute()
+            response = (
+                self.youtube.playlists()
+                .list(
+                    part="snippet",
+                    mine=True,
+                    maxResults=50,
+                    pageToken=next_page_token,
+                )
+                .execute()
+            )
 
             for item in response.get("items", []):
                 if item["snippet"]["title"] == name:
@@ -341,13 +393,17 @@ class YouTubeClient:
                 break
 
         # Not found — create it
-        response = self.youtube.playlists().insert(
-            part="snippet,status",
-            body={
-                "snippet": {"title": name},
-                "status": {"privacyStatus": "private"},
-            },
-        ).execute()
+        response = (
+            self.youtube.playlists()
+            .insert(
+                part="snippet,status",
+                body={
+                    "snippet": {"title": name},
+                    "status": {"privacyStatus": "private"},
+                },
+            )
+            .execute()
+        )
         return response["id"]
 
     def get_playlist_items(self, playlist_id: str) -> Dict[str, str]:
@@ -365,12 +421,16 @@ class YouTubeClient:
         result: Dict[str, str] = {}
         next_page_token = None
         while True:
-            response = self.youtube.playlistItems().list(
-                part="snippet,contentDetails",
-                playlistId=playlist_id,
-                maxResults=50,
-                pageToken=next_page_token,
-            ).execute()
+            response = (
+                self.youtube.playlistItems()
+                .list(
+                    part="snippet,contentDetails",
+                    playlistId=playlist_id,
+                    maxResults=50,
+                    pageToken=next_page_token,
+                )
+                .execute()
+            )
 
             for item in response.get("items", []):
                 video_id = item["contentDetails"]["videoId"]
@@ -393,18 +453,22 @@ class YouTubeClient:
         Returns:
             The ``playlistItem.id`` of the newly created item.
         """
-        response = self.youtube.playlistItems().insert(
-            part="snippet",
-            body={
-                "snippet": {
-                    "playlistId": playlist_id,
-                    "resourceId": {
-                        "kind": "youtube#video",
-                        "videoId": video_id,
-                    },
-                }
-            },
-        ).execute()
+        response = (
+            self.youtube.playlistItems()
+            .insert(
+                part="snippet",
+                body={
+                    "snippet": {
+                        "playlistId": playlist_id,
+                        "resourceId": {
+                            "kind": "youtube#video",
+                            "videoId": video_id,
+                        },
+                    }
+                },
+            )
+            .execute()
+        )
         return response["id"]
 
     def remove_from_playlist(self, playlist_item_id: str) -> None:
@@ -438,11 +502,17 @@ class YouTubeClient:
         Returns:
             List of new or updated :class:`Video` objects.
         """
-        if progress_callback: progress_callback(f"Syncing videos since {published_after or 'forever'}...")
+        if progress_callback:
+            progress_callback(f"Syncing videos since {published_after or 'forever'}...")
         all_raw_videos = []
 
         with ThreadPoolExecutor(max_workers=SYNC_MAX_WORKERS) as executor:
-            futures = [executor.submit(self.fetch_videos_from_playlist, c, published_after, channel_stats) for c in channels]
+            futures = [
+                executor.submit(
+                    self.fetch_videos_from_playlist, c, published_after, channel_stats
+                )
+                for c in channels
+            ]
             completed = 0
             for future in as_completed(futures):
                 videos, cid, latest_date = future.result()
@@ -455,10 +525,16 @@ class YouTubeClient:
 
                 completed += 1
                 if completed % 20 == 0 or completed == len(channels):
-                    if progress_callback: progress_callback(f"Progress: {completed}/{len(channels)} channels synced.")
+                    if progress_callback:
+                        progress_callback(
+                            f"Progress: {completed}/{len(channels)} channels synced."
+                        )
 
         if not all_raw_videos:
             return []
 
-        if progress_callback: progress_callback(f"Fetching details for {len(all_raw_videos)} new videos...")
+        if progress_callback:
+            progress_callback(
+                f"Fetching details for {len(all_raw_videos)} new videos..."
+            )
         return self.get_detailed_videos(all_raw_videos)

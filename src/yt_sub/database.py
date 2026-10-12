@@ -27,6 +27,7 @@ def _parse_duration_seconds(duration: str) -> int:
         pass
     return 0
 
+
 DB_PATH = str(paths.database_file())
 
 
@@ -49,7 +50,7 @@ class Database:
         cursor = self.conn.cursor()
 
         # Channels table
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS channels (
                 id TEXT PRIMARY KEY,
                 title TEXT,
@@ -64,10 +65,10 @@ class Database:
                 latest_video_date TEXT,
                 raw_json TEXT
             )
-        ''')
+        """)
 
         # Videos table
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS videos (
                 id TEXT PRIMARY KEY,
                 channel_id TEXT,
@@ -85,34 +86,36 @@ class Database:
                 raw_json TEXT,
                 FOREIGN KEY (channel_id) REFERENCES channels(id)
             )
-        ''')
+        """)
 
         # Check if columns exist (for existing databases)
         cursor.execute("PRAGMA table_info(videos)")
         columns = [col[1] for col in cursor.fetchall()]
-        if 'watch_later' not in columns:
-            cursor.execute("ALTER TABLE videos ADD COLUMN watch_later INTEGER DEFAULT 0")
-        if 'last_synced' not in columns:
+        if "watch_later" not in columns:
+            cursor.execute(
+                "ALTER TABLE videos ADD COLUMN watch_later INTEGER DEFAULT 0"
+            )
+        if "last_synced" not in columns:
             cursor.execute("ALTER TABLE videos ADD COLUMN last_synced TEXT")
 
         # Metadata table
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS metadata (
                 key TEXT PRIMARY KEY,
                 value TEXT
             )
-        ''')
+        """)
 
         # Later sync snapshot table
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS later_sync_snapshot (
                 video_id TEXT PRIMARY KEY,
                 playlist_item_id TEXT NOT NULL
             )
-        ''')
+        """)
 
         # Outbox queue for immediate Later sync operations
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS later_sync_queue (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 video_id TEXT NOT NULL,
@@ -122,11 +125,11 @@ class Database:
                 last_error TEXT,
                 status TEXT NOT NULL DEFAULT 'pending'
             )
-        ''')
-        cursor.execute('''
+        """)
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_later_sync_queue_created
             ON later_sync_queue(created_at)
-        ''')
+        """)
 
         self.conn.commit()
 
@@ -140,11 +143,27 @@ class Database:
         with self._lock:
             cursor = self.conn.cursor()
             for c in channels:
-                cursor.execute('''
+                cursor.execute(
+                    """
                     INSERT OR REPLACE INTO channels
                     (id, title, description, custom_url, published_at, thumbnail_url, view_count, subscriber_count, video_count, uploads_playlist_id, latest_video_date, raw_json)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (c.id, c.title, c.description, c.custom_url, c.published_at, c.thumbnail_url, c.view_count, c.subscriber_count, c.video_count, c.uploads_playlist_id, c.latest_video_date, c.raw_json))
+                """,
+                    (
+                        c.id,
+                        c.title,
+                        c.description,
+                        c.custom_url,
+                        c.published_at,
+                        c.thumbnail_url,
+                        c.view_count,
+                        c.subscriber_count,
+                        c.video_count,
+                        c.uploads_playlist_id,
+                        c.latest_video_date,
+                        c.raw_json,
+                    ),
+                )
             self.conn.commit()
 
     def save_videos(self, videos: List[Video]) -> None:
@@ -161,7 +180,8 @@ class Database:
         with self._lock:
             cursor = self.conn.cursor()
             for v in videos:
-                cursor.execute('''
+                cursor.execute(
+                    """
                     INSERT INTO videos
                     (id, channel_id, title, description, published_at, duration, thumbnail_url, view_count, like_count, comment_count, channel_title, watch_later, last_synced, raw_json)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -176,7 +196,24 @@ class Database:
                         comment_count=excluded.comment_count,
                         last_synced=excluded.last_synced,
                         raw_json=excluded.raw_json
-                ''', (v.id, v.channel_id, v.title, v.description, v.published_at, v.duration, v.thumbnail_url, v.view_count, v.like_count, v.comment_count, v.channel_title, 1 if v.watch_later else 0, v.last_synced, v.raw_json))
+                """,
+                    (
+                        v.id,
+                        v.channel_id,
+                        v.title,
+                        v.description,
+                        v.published_at,
+                        v.duration,
+                        v.thumbnail_url,
+                        v.view_count,
+                        v.like_count,
+                        v.comment_count,
+                        v.channel_title,
+                        1 if v.watch_later else 0,
+                        v.last_synced,
+                        v.raw_json,
+                    ),
+                )
             self.conn.commit()
 
     def update_watch_later(self, video_id: str, status: bool) -> None:
@@ -188,14 +225,17 @@ class Database:
         """
         with self._lock:
             cursor = self.conn.cursor()
-            cursor.execute('UPDATE videos SET watch_later = ? WHERE id = ?', (1 if status else 0, video_id))
+            cursor.execute(
+                "UPDATE videos SET watch_later = ? WHERE id = ?",
+                (1 if status else 0, video_id),
+            )
             self.conn.commit()
 
     def reset_watch_later(self) -> None:
         """Clears the watch-later flag for every video in the database."""
         with self._lock:
             cursor = self.conn.cursor()
-            cursor.execute('UPDATE videos SET watch_later = 0')
+            cursor.execute("UPDATE videos SET watch_later = 0")
             self.conn.commit()
 
     def get_all_videos(self) -> List[Video]:
@@ -205,21 +245,33 @@ class Database:
             List of :class:`Video` objects, newest first.
         """
         cursor = self.conn.cursor()
-        cursor.execute('''
+        cursor.execute("""
             SELECT id, channel_id, title, description, published_at, duration, thumbnail_url, view_count, like_count, comment_count, channel_title, watch_later, last_synced, raw_json
             FROM videos
             ORDER BY published_at DESC
-        ''')
+        """)
         rows = cursor.fetchall()
 
         videos = []
         for row in rows:
-            videos.append(Video(
-                id=row[0], channel_id=row[1], title=row[2], description=row[3],
-                published_at=row[4], duration=row[5], thumbnail_url=row[6],
-                view_count=row[7], like_count=row[8], comment_count=row[9],
-                channel_title=row[10], watch_later=bool(row[11]), last_synced=row[12], raw_json=row[13]
-            ))
+            videos.append(
+                Video(
+                    id=row[0],
+                    channel_id=row[1],
+                    title=row[2],
+                    description=row[3],
+                    published_at=row[4],
+                    duration=row[5],
+                    thumbnail_url=row[6],
+                    view_count=row[7],
+                    like_count=row[8],
+                    comment_count=row[9],
+                    channel_title=row[10],
+                    watch_later=bool(row[11]),
+                    last_synced=row[12],
+                    raw_json=row[13],
+                )
+            )
         return videos
 
     def get_all_channels(self) -> List[Channel]:
@@ -229,17 +281,27 @@ class Database:
             List of :class:`Channel` objects.
         """
         cursor = self.conn.cursor()
-        cursor.execute('SELECT * FROM channels ORDER BY title ASC')
+        cursor.execute("SELECT * FROM channels ORDER BY title ASC")
         rows = cursor.fetchall()
 
         channels = []
         for row in rows:
-            channels.append(Channel(
-                id=row[0], title=row[1], description=row[2], custom_url=row[3],
-                published_at=row[4], thumbnail_url=row[5], view_count=row[6],
-                subscriber_count=row[7], video_count=row[8], uploads_playlist_id=row[9],
-                latest_video_date=row[10], raw_json=row[11]
-            ))
+            channels.append(
+                Channel(
+                    id=row[0],
+                    title=row[1],
+                    description=row[2],
+                    custom_url=row[3],
+                    published_at=row[4],
+                    thumbnail_url=row[5],
+                    view_count=row[6],
+                    subscriber_count=row[7],
+                    video_count=row[8],
+                    uploads_playlist_id=row[9],
+                    latest_video_date=row[10],
+                    raw_json=row[11],
+                )
+            )
         return channels
 
     def set_last_update(self, date_str: str) -> None:
@@ -250,7 +312,10 @@ class Database:
         """
         with self._lock:
             cursor = self.conn.cursor()
-            cursor.execute('INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)', ("last_update", date_str))
+            cursor.execute(
+                "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+                ("last_update", date_str),
+            )
             self.conn.commit()
 
     def get_last_update(self) -> Optional[str]:
@@ -260,7 +325,7 @@ class Database:
             ISO 8601 timestamp string, or ``None`` if no sync has run yet.
         """
         cursor = self.conn.cursor()
-        cursor.execute('SELECT value FROM metadata WHERE key = ?', ("last_update",))
+        cursor.execute("SELECT value FROM metadata WHERE key = ?", ("last_update",))
         row = cursor.fetchone()
         return row[0] if row else None
 
@@ -275,15 +340,20 @@ class Database:
             with no videos in the window are absent from the dict.
         """
         cursor = self.conn.cursor()
-        three_months_ago = (datetime.now().timestamp() - (90 * 24 * 3600))
-        three_months_ago_str = datetime.fromtimestamp(three_months_ago).strftime("%Y-%m-%dT%H:%M:%SZ")
+        three_months_ago = datetime.now().timestamp() - (90 * 24 * 3600)
+        three_months_ago_str = datetime.fromtimestamp(three_months_ago).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
 
-        cursor.execute('''
+        cursor.execute(
+            """
             SELECT channel_id, COUNT(*)
             FROM videos
             WHERE published_at > ?
             GROUP BY channel_id
-        ''', (three_months_ago_str,))
+        """,
+            (three_months_ago_str,),
+        )
 
         counts = {row[0]: row[1] / 90.0 for row in cursor.fetchall()}
         return counts
@@ -314,7 +384,7 @@ class Database:
             cursor.execute("DELETE FROM later_sync_snapshot")
             cursor.executemany(
                 "INSERT INTO later_sync_snapshot (video_id, playlist_item_id) VALUES (?, ?)",
-                snapshot.items()
+                snapshot.items(),
             )
             self.conn.commit()
 
@@ -372,13 +442,17 @@ class Database:
             durations = all_durations.get(channel_id, [])
             non_short = [d for d in durations if d >= threshold_seconds]
 
-            rows.append(ChannelStatRow(
-                channel_id=channel_id,
-                channel_title=channel_title,
-                avg_per_month=len(durations) / months,
-                avg_non_short_per_month=len(non_short) / months,
-                median_duration_seconds=statistics.median(non_short) if non_short else None,
-            ))
+            rows.append(
+                ChannelStatRow(
+                    channel_id=channel_id,
+                    channel_title=channel_title,
+                    avg_per_month=len(durations) / months,
+                    avg_non_short_per_month=len(non_short) / months,
+                    median_duration_seconds=statistics.median(non_short)
+                    if non_short
+                    else None,
+                )
+            )
 
         return rows
 
@@ -421,12 +495,18 @@ class Database:
                 existing_id, existing_action = row
                 if existing_action != action:
                     # Opposite action — cancel both
-                    cursor.execute("DELETE FROM later_sync_queue WHERE id = ?", (existing_id,))
+                    cursor.execute(
+                        "DELETE FROM later_sync_queue WHERE id = ?", (existing_id,)
+                    )
                 # Same action — no new insert needed
             else:
                 cursor.execute(
                     "INSERT INTO later_sync_queue (video_id, action, created_at) VALUES (?, ?, ?)",
-                    (video_id, action, datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")),
+                    (
+                        video_id,
+                        action,
+                        datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    ),
                 )
             self.conn.commit()
 
@@ -446,8 +526,13 @@ class Database:
         if row is None:
             return None
         return OutboxEntry(
-            id=row[0], video_id=row[1], action=row[2], created_at=row[3],
-            attempts=row[4], last_error=row[5], status=row[6],
+            id=row[0],
+            video_id=row[1],
+            action=row[2],
+            created_at=row[3],
+            attempts=row[4],
+            last_error=row[5],
+            status=row[6],
         )
 
     def increment_op_attempts(self, op_id: int, error: str) -> int:
@@ -469,7 +554,9 @@ class Database:
                 (error, op_id),
             )
             self.conn.commit()
-            cursor.execute("SELECT attempts FROM later_sync_queue WHERE id = ?", (op_id,))
+            cursor.execute(
+                "SELECT attempts FROM later_sync_queue WHERE id = ?", (op_id,)
+            )
             row = cursor.fetchone()
             return row[0] if row else 0
 
@@ -517,9 +604,15 @@ class Database:
         )
         return [
             OutboxEntry(
-                id=row[0], video_id=row[1], action=row[2], created_at=row[3],
-                attempts=row[4], last_error=row[5], status=row[6],
-                title=row[7], channel_title=row[8],
+                id=row[0],
+                video_id=row[1],
+                action=row[2],
+                created_at=row[3],
+                attempts=row[4],
+                last_error=row[5],
+                status=row[6],
+                title=row[7],
+                channel_title=row[8],
             )
             for row in cursor.fetchall()
         ]
@@ -576,7 +669,8 @@ class Database:
         """
         cursor = self.conn.cursor()
         cursor.execute(
-            "SELECT playlist_item_id FROM later_sync_snapshot WHERE video_id = ?", (video_id,)
+            "SELECT playlist_item_id FROM later_sync_snapshot WHERE video_id = ?",
+            (video_id,),
         )
         row = cursor.fetchone()
         return row[0] if row else None

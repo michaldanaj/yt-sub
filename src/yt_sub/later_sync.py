@@ -103,7 +103,9 @@ def sync_later(db: Database, yt: YouTubeClient, config: Dict[str, Any]) -> SyncR
             playlist_id = yt.find_or_create_playlist(playlist_name)
             _save_playlist_id_to_config(playlist_id)
         except Exception as e:
-            result.errors.append(f"Could not find/create playlist '{playlist_name}': {e}")
+            result.errors.append(
+                f"Could not find/create playlist '{playlist_name}': {e}"
+            )
             return result
 
     # Step 1: Load snapshot S
@@ -117,7 +119,9 @@ def sync_later(db: Database, yt: YouTubeClient, config: Dict[str, Any]) -> SyncR
         return result
 
     local_video_ids: set = {v.id for v in db.get_all_videos()}
-    Y: Dict[str, str] = {vid: iid for vid, iid in Y_raw.items() if vid in local_video_ids}
+    Y: Dict[str, str] = {
+        vid: iid for vid, iid in Y_raw.items() if vid in local_video_ids
+    }
 
     # Step 3: Load L from database
     L: set = db.get_watch_later_ids()
@@ -162,7 +166,9 @@ def sync_later(db: Database, yt: YouTubeClient, config: Dict[str, Any]) -> SyncR
             result.removed_from_yt += 1
         except Exception as e:
             result.errors.append(f"Failed to remove {vid_id} from playlist: {e}")
-            logger.warning("later_sync remove_from_playlist failed for %s: %s", vid_id, e)
+            logger.warning(
+                "later_sync remove_from_playlist failed for %s: %s", vid_id, e
+            )
 
     # Step 6: Build and persist new snapshot
     new_S: Dict[str, str] = {vid: iid for vid, iid in Y.items()}

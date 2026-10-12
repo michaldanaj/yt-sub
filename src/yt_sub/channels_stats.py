@@ -12,10 +12,10 @@ CONFIG_PATH = str(paths.config_file())
 QUIT_SENTINEL = "__quit__"
 
 # Fixed column widths (including one leading space of padding).
-_W_NUM = 4       # row number
-_W_AVG = 8       # Avg/mo
-_W_NSHORT = 14   # Non-short/mo
-_W_MED = 11      # Median dur
+_W_NUM = 4  # row number
+_W_AVG = 8  # Avg/mo
+_W_NSHORT = 14  # Non-short/mo
+_W_MED = 11  # Median dur
 
 _COL_HEADERS = ["Channel", "Avg/mo", "Non-short/mo", "Median dur"]
 
@@ -23,7 +23,9 @@ _SORT_KEYS: List[Callable[[ChannelStatRow], Any]] = [
     lambda r: r.channel_title.lower(),
     lambda r: r.avg_per_month,
     lambda r: r.avg_non_short_per_month,
-    lambda r: r.median_duration_seconds if r.median_duration_seconds is not None else -1.0,
+    lambda r: r.median_duration_seconds
+    if r.median_duration_seconds is not None
+    else -1.0,
 ]
 
 
@@ -165,7 +167,11 @@ class ChannelsStatsView:
                 elif key == 27:  # ESC — exit search and clear filter
                     self._is_searching = False
                     self._search_query = ""
-                elif key in (curses.KEY_ENTER, 10, 13):  # Enter — exit search, keep filter
+                elif key in (
+                    curses.KEY_ENTER,
+                    10,
+                    13,
+                ):  # Enter — exit search, keep filter
                     self._is_searching = False
                 elif key == curses.KEY_DOWN:
                     self._selected = min(self._selected + 1, max(0, len(rows) - 1))
@@ -339,7 +345,7 @@ class ChannelsStatsView:
 
         # Header
         col_specs = [
-            (_COL_HEADERS[0], x_chan, chan_w, False),   # left-aligned
+            (_COL_HEADERS[0], x_chan, chan_w, False),  # left-aligned
             (_COL_HEADERS[1], x_avg, _W_AVG, True),
             (_COL_HEADERS[2], x_nshort, _W_NSHORT, True),
             (_COL_HEADERS[3], x_med, _W_MED, True),
@@ -367,17 +373,25 @@ class ChannelsStatsView:
             _safe_addstr(stdscr, y, x_num, f"{row_i + 1:>{_W_NUM - 1}} ", attr)
             _safe_addstr(stdscr, y, x_chan, row.channel_title[: chan_w - 1], attr)
             _safe_addstr(
-                stdscr, y, x_avg,
+                stdscr,
+                y,
+                x_avg,
                 f"{row.avg_per_month:.1f}".rjust(_W_AVG - 1).rjust(_W_AVG),
                 attr,
             )
             _safe_addstr(
-                stdscr, y, x_nshort,
-                f"{row.avg_non_short_per_month:.1f}".rjust(_W_NSHORT - 1).rjust(_W_NSHORT),
+                stdscr,
+                y,
+                x_nshort,
+                f"{row.avg_non_short_per_month:.1f}".rjust(_W_NSHORT - 1).rjust(
+                    _W_NSHORT
+                ),
                 attr,
             )
             _safe_addstr(
-                stdscr, y, x_med,
+                stdscr,
+                y,
+                x_med,
                 _format_median(row.median_duration_seconds).rjust(_W_MED),
                 attr,
             )
@@ -422,7 +436,9 @@ class ChannelsStatsView:
         curses.curs_set(1)
         result = None
         try:
-            input_win = curses.newwin(1, max(1, sw - len(prompt) - 1), sh - 1, len(prompt))
+            input_win = curses.newwin(
+                1, max(1, sw - len(prompt) - 1), sh - 1, len(prompt)
+            )
             input_win.attron(curses.A_REVERSE)
             val_str = input_win.getstr().decode("utf-8").strip()
             if val_str.isdigit() and min_val <= int(val_str) <= max_val:

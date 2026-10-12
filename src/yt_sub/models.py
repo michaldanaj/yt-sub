@@ -88,7 +88,7 @@ class Video:
         Returns:
             Duration in seconds, or ``0`` if the format is unrecognised.
         """
-        parts = self.duration.strip().split(':')
+        parts = self.duration.strip().split(":")
         try:
             if len(parts) == 3:  # H:MM:SS
                 return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
@@ -96,7 +96,9 @@ class Video:
                 return int(parts[0]) * 60 + int(parts[1])
         except (ValueError, IndexError):
             pass
-        logger.warning("Unrecognised duration format for video %s: %r", self.id, self.duration)
+        logger.warning(
+            "Unrecognised duration format for video %s: %r", self.id, self.duration
+        )
         return 0
 
     @property

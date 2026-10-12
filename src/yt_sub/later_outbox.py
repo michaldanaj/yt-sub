@@ -89,7 +89,9 @@ class LaterOutboxWorker:
 
     def start(self) -> None:
         """Starts the background daemon thread."""
-        self._thread = threading.Thread(target=self._run, daemon=True, name="later-outbox")
+        self._thread = threading.Thread(
+            target=self._run, daemon=True, name="later-outbox"
+        )
         self._thread.start()
 
     def _resolve_playlist_id(self) -> Optional[str]:
@@ -134,11 +136,15 @@ class LaterOutboxWorker:
         """
         playlist_id = self._resolve_playlist_id()
         if playlist_id is None:
-            new_attempts = self.db.increment_op_attempts(op_id, "Could not resolve playlist ID")
+            new_attempts = self.db.increment_op_attempts(
+                op_id, "Could not resolve playlist ID"
+            )
             if new_attempts >= MAX_ATTEMPTS:
                 self.db.mark_op_failed(op_id)
             else:
-                self._interruptible_sleep(BACKOFF_SECONDS[min(new_attempts - 1, len(BACKOFF_SECONDS) - 1)])
+                self._interruptible_sleep(
+                    BACKOFF_SECONDS[min(new_attempts - 1, len(BACKOFF_SECONDS) - 1)]
+                )
             return
 
         try:
@@ -156,14 +162,18 @@ class LaterOutboxWorker:
                 self.db.delete_op(op_id)
         except Exception as exc:
             error_msg = str(exc)[:200]
-            logger.warning("LaterOutboxWorker %s %s failed: %s", action, video_id, error_msg)
+            logger.warning(
+                "LaterOutboxWorker %s %s failed: %s", action, video_id, error_msg
+            )
             with open(str(paths.log_file()), "a") as lf:
                 lf.write(f"LaterOutboxWorker {action} {video_id}: {error_msg}\n")
             new_attempts = self.db.increment_op_attempts(op_id, error_msg)
             if new_attempts >= MAX_ATTEMPTS:
                 self.db.mark_op_failed(op_id)
             else:
-                self._interruptible_sleep(BACKOFF_SECONDS[min(new_attempts - 1, len(BACKOFF_SECONDS) - 1)])
+                self._interruptible_sleep(
+                    BACKOFF_SECONDS[min(new_attempts - 1, len(BACKOFF_SECONDS) - 1)]
+                )
 
     def _interruptible_sleep(self, seconds: float) -> None:
         """Sleeps up to *seconds* but wakes early when *outbox_event* is set.

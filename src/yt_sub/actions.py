@@ -44,11 +44,12 @@ def copy_to_clipboard(text: str) -> None:
     Args:
         text: String to place on the clipboard.
     """
-    for cmd in (['xclip', '-selection', 'clipboard'], ['wl-copy']):
+    for cmd in (["xclip", "-selection", "clipboard"], ["wl-copy"]):
         try:
-            process = subprocess.Popen(cmd, stdin=subprocess.PIPE,
-                                       stderr=subprocess.DEVNULL)
-            process.communicate(input=text.encode('utf-8'))
+            process = subprocess.Popen(
+                cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL
+            )
+            process.communicate(input=text.encode("utf-8"))
             if process.returncode == 0:
                 return
         except FileNotFoundError:
@@ -62,7 +63,10 @@ def open_in_browser(video: Video) -> None:
         video: Video whose URL should be opened.
     """
     try:
-        subprocess.run(["xdg-open", video.url],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            ["xdg-open", video.url],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     except Exception:
         pass

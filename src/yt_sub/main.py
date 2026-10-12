@@ -47,8 +47,11 @@ def download_thumbnails(
             before the download batch starts.
     """
     os.makedirs(THUMB_CACHE_DIR, exist_ok=True)
-    to_fetch = [v for v in videos
-                if not os.path.exists(os.path.join(THUMB_CACHE_DIR, f"{v.id}_max.jpg"))]
+    to_fetch = [
+        v
+        for v in videos
+        if not os.path.exists(os.path.join(THUMB_CACHE_DIR, f"{v.id}_max.jpg"))
+    ]
     if not to_fetch:
         return
 
@@ -61,8 +64,10 @@ def download_thumbnails(
         # success, so an interrupted sync (Ctrl-C, crash, network error) never
         # leaves a truncated *_max.jpg that would later poison rendering.
         tmp_path = path + f".tmp.{os.getpid()}.{id(video)}"
-        for url in [f"https://i.ytimg.com/vi/{video.id}/maxresdefault.jpg",
-                    video.thumbnail_url]:
+        for url in [
+            f"https://i.ytimg.com/vi/{video.id}/maxresdefault.jpg",
+            video.thumbnail_url,
+        ]:
             if not url:
                 continue
             try:
@@ -71,8 +76,10 @@ def download_thumbnails(
                 return
             except Exception:
                 if os.path.exists(tmp_path):
-                    try: os.remove(tmp_path)
-                    except OSError: pass
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
                 continue
 
     with ThreadPoolExecutor(max_workers=THUMB_MAX_WORKERS) as executor:
@@ -109,6 +116,7 @@ def background_sync(
             for this event before running so that pending outbox operations
             are propagated to YouTube first.
     """
+
     def progress(msg: str) -> None:
         sync_queue.put({"type": "progress", "message": msg})
 
@@ -121,7 +129,9 @@ def background_sync(
         channel_stats = db.get_channel_stats()
 
         # Sync videos since sync_start_rfc3339
-        new_videos = client.sync_data(channels, sync_start_rfc3339, channel_stats, progress_callback=progress)
+        new_videos = client.sync_data(
+            channels, sync_start_rfc3339, channel_stats, progress_callback=progress
+        )
 
         # Single timestamp for both last_synced on videos and the metadata record
         now_rfc3339 = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -162,6 +172,7 @@ def background_sync(
 
     except Exception as e:
         import traceback
+
         error_msg = f"Sync error: {str(e)}"
         progress(error_msg)
         # Log to file for debugging
@@ -192,7 +203,9 @@ def calc_sync_start(db: Database) -> Optional[str]:
     try:
         dt = datetime.strptime(last_update, "%Y-%m-%dT%H:%M:%SZ")
         overlap_ts = dt.replace(tzinfo=timezone.utc).timestamp() - (24 * 3600)
-        return datetime.fromtimestamp(overlap_ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return datetime.fromtimestamp(overlap_ts, timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
     except ValueError:
         return last_update
 
@@ -222,6 +235,7 @@ def make_sync_starter(
     Returns:
         A callable ``() -> threading.Thread``.
     """
+
     def _start() -> threading.Thread:
         sync_start = calc_sync_start(db)
         t = threading.Thread(
@@ -231,6 +245,7 @@ def make_sync_starter(
         )
         t.start()
         return t
+
     return _start
 
 
@@ -245,12 +260,27 @@ def main() -> None:
     - ``--sync-only``: run a foreground sync without starting the TUI.
     """
     from . import __version__
-    parser = argparse.ArgumentParser(description="YouTube Subscription Monitor with Database & TUI")
+
+    parser = argparse.ArgumentParser(
+        description="YouTube Subscription Monitor with Database & TUI"
+    )
     parser.add_argument("--version", action="version", version=f"yt-sub {__version__}")
-    parser.add_argument("--date-limit", type=str, help="Update from this date (YYYY-MM-DD). If not provided, updates from last refresh.")
-    parser.add_argument("--display-channels", action="store_true", help="Display channels from database.")
-    parser.add_argument("--no-tui", action="store_true", help="Don't start TUI after sync.")
-    parser.add_argument("--sync-only", action="store_true", help="Only sync data, don't show TUI.")
+    parser.add_argument(
+        "--date-limit",
+        type=str,
+        help="Update from this date (YYYY-MM-DD). If not provided, updates from last refresh.",
+    )
+    parser.add_argument(
+        "--display-channels",
+        action="store_true",
+        help="Display channels from database.",
+    )
+    parser.add_argument(
+        "--no-tui", action="store_true", help="Don't start TUI after sync."
+    )
+    parser.add_argument(
+        "--sync-only", action="store_true", help="Only sync data, don't show TUI."
+    )
     args = parser.parse_args()
 
     db = Database()
@@ -289,7 +319,7 @@ def main() -> None:
         # Text mode (we don't do background sync here for simplicity)
         current_date = None
         for v in all_videos[:50]:
-            p_date = v.published_at.split('T')[0]
+            p_date = v.published_at.split("T")[0]
             if p_date != current_date:
                 print(f"\n--- {p_date} ---")
                 current_date = p_date
@@ -298,6 +328,7 @@ def main() -> None:
     else:
         # Load config for Later sync (TUI also loads it, but we need it here for the sync thread)
         import json as _json
+
         _config_path = str(paths.config_file())
         try:
             with open(_config_path, "r") as _f:
@@ -305,7 +336,10 @@ def main() -> None:
         except (FileNotFoundError, _json.JSONDecodeError):
             _config = {}
         if "youtube" not in _config:
-            _config["youtube"] = {"later_playlist_name": "Later", "later_playlist_id": ""}
+            _config["youtube"] = {
+                "later_playlist_name": "Later",
+                "later_playlist_id": "",
+            }
 
         # Start outbox worker so pending Later ops are synced immediately
         outbox_event = threading.Event()
@@ -315,20 +349,34 @@ def main() -> None:
         # Start TUI and background sync
         sync_queue = queue.Queue()
         sync_starter = make_sync_starter(
-            db, client, _config, sync_queue,
+            db,
+            client,
+            _config,
+            sync_queue,
             outbox_drained_event=outbox_worker.drained_event,
         )
 
         sync_thread = threading.Thread(
             target=background_sync,
-            args=(db, client, sync_queue, sync_start_rfc3339, _config,
-                  outbox_worker.drained_event),
+            args=(
+                db,
+                client,
+                sync_queue,
+                sync_start_rfc3339,
+                _config,
+                outbox_worker.drained_event,
+            ),
             daemon=True,
         )
         sync_thread.start()
 
-        start_tui(all_videos, db, sync_queue, sync_starter=sync_starter,
-                  outbox_event=outbox_event)
+        start_tui(
+            all_videos,
+            db,
+            sync_queue,
+            sync_starter=sync_starter,
+            outbox_event=outbox_event,
+        )
         db.close()
 
 

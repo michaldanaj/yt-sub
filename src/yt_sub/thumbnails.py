@@ -60,8 +60,9 @@ def _get_executor() -> ThreadPoolExecutor:
     """Lazily creates the shared download pool on first use."""
     global _executor
     if _executor is None:
-        _executor = ThreadPoolExecutor(max_workers=_DOWNLOAD_WORKERS,
-                                       thread_name_prefix="yt-sub-thumb")
+        _executor = ThreadPoolExecutor(
+            max_workers=_DOWNLOAD_WORKERS, thread_name_prefix="yt-sub-thumb"
+        )
     return _executor
 
 
@@ -100,8 +101,10 @@ def _download_to_disk(video: Video) -> None:
             return
         except Exception:
             if os.path.exists(tmp_path):
-                try: os.remove(tmp_path)
-                except OSError: pass
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
             continue
 
 
@@ -123,9 +126,9 @@ def _schedule_download(video: Video) -> None:
     _get_executor().submit(_runner)
 
 
-def _schedule_encode(video: Video, cols: int, rows: int,
-                     cell_w: int, cell_h: int,
-                     cache: EncodeCache) -> None:
+def _schedule_encode(
+    video: Video, cols: int, rows: int, cell_w: int, cell_h: int, cache: EncodeCache
+) -> None:
     """Runs PIL encode in a worker, populating ``cache`` on completion.
 
     Encoding (Image.open + resize LANCZOS + PNG + base64) takes
@@ -164,6 +167,7 @@ def _schedule_encode(video: Video, cols: int, rows: int,
 
 # --- Synchronous helpers (terminal sizing, encoding) ---------------------
 
+
 def get_cell_px() -> Tuple[int, int]:
     """Queries the terminal for the pixel size of a single character cell.
 
@@ -176,9 +180,9 @@ def get_cell_px() -> Tuple[int, int]:
         or returns zeroes.
     """
     try:
-        buf = struct.pack('HHHH', 0, 0, 0, 0)
+        buf = struct.pack("HHHH", 0, 0, 0, 0)
         res = fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, buf)
-        rows, cols, xpx, ypx = struct.unpack('HHHH', res)
+        rows, cols, xpx, ypx = struct.unpack("HHHH", res)
         if rows > 0 and cols > 0 and xpx > 0 and ypx > 0:
             return ypx // rows, xpx // cols
     except Exception:
@@ -186,8 +190,9 @@ def get_cell_px() -> Tuple[int, int]:
     return CELL_H_PX_FALLBACK, CELL_W_PX_FALLBACK
 
 
-def _encode_from_disk(cache_path: str, cols: int, rows: int,
-                      cell_w: int) -> Optional[bytes]:
+def _encode_from_disk(
+    cache_path: str, cols: int, rows: int, cell_w: int
+) -> Optional[bytes]:
     """Reads ``cache_path`` and returns its Kitty APC byte stream.
 
     Returns ``None`` (and removes the cache file) if PIL cannot decode
@@ -196,6 +201,7 @@ def _encode_from_disk(cache_path: str, cols: int, rows: int,
     """
     try:
         from PIL import Image
+
         img = Image.open(cache_path).convert("RGB")
         target_w = cols * cell_w
         ratio = target_w / img.width
@@ -203,34 +209,36 @@ def _encode_from_disk(cache_path: str, cols: int, rows: int,
         img = img.resize((target_w, target_h), Image.LANCZOS)
 
         buf = io.BytesIO()
-        img.save(buf, format='PNG')
-        b64 = base64.standard_b64encode(buf.getvalue()).decode('ascii')
+        img.save(buf, format="PNG")
+        b64 = base64.standard_b64encode(buf.getvalue()).decode("ascii")
 
         chunk_size = 4096
-        chunks = [b64[i:i + chunk_size] for i in range(0, len(b64), chunk_size)]
-        result = b''
+        chunks = [b64[i : i + chunk_size] for i in range(0, len(b64), chunk_size)]
+        result = b""
         for i, chunk in enumerate(chunks):
             more = 1 if i < len(chunks) - 1 else 0
             if i == 0:
                 # c=/r= clip the image to exactly the reserved cell area,
                 # preventing overflow regardless of rounding differences.
-                payload = f'a=T,f=100,c={cols},r={rows},q=2,m={more};{chunk}'
+                payload = f"a=T,f=100,c={cols},r={rows},q=2,m={more};{chunk}"
             else:
-                payload = f'm={more};{chunk}'
-            result += f'\033_G{payload}\033\\'.encode('ascii')
+                payload = f"m={more};{chunk}"
+            result += f"\033_G{payload}\033\\".encode("ascii")
         return result
     except Exception:
         # Truncated download or decoder error — drop the file so the
         # next iteration re-downloads. Don't cache None: doing so would
         # silently hide the thumbnail until the process restarts.
-        try: os.remove(cache_path)
-        except OSError: pass
+        try:
+            os.remove(cache_path)
+        except OSError:
+            pass
         return None
 
 
-def encode_kitty(video: Video, cols: int, rows: int,
-                 cell_w: int, cell_h: int,
-                 cache: EncodeCache) -> Optional[bytes]:
+def encode_kitty(
+    video: Video, cols: int, rows: int, cell_w: int, cell_h: int, cache: EncodeCache
+) -> Optional[bytes]:
     """Returns Kitty APC bytes for a thumbnail, or schedules a download.
 
     Three paths, all non-blocking:
@@ -289,13 +297,20 @@ def clear_kitty() -> None:
     renderer (e.g. a full-screen overlay or a different TUI view) so that
     ghost thumbnails do not bleed through.
     """
-    sys.stdout.buffer.write(b'\033_Ga=d,d=A\033\\')
+    sys.stdout.buffer.write(b"\033_Ga=d,d=A\033\\")
     sys.stdout.buffer.flush()
 
 
-def draw_kitty(abs_row: int, abs_col: int, cols: int, rows: int,
-               video: Video, cell_w: int, cell_h: int,
-               cache: EncodeCache) -> None:
+def draw_kitty(
+    abs_row: int,
+    abs_col: int,
+    cols: int,
+    rows: int,
+    video: Video,
+    cell_w: int,
+    cell_h: int,
+    cache: EncodeCache,
+) -> None:
     """Renders the thumbnail at an absolute terminal position.
 
     First deletes any existing Kitty image (``a=d,d=A``), then moves the
@@ -317,14 +332,14 @@ def draw_kitty(abs_row: int, abs_col: int, cols: int, rows: int,
         cell_h: Height of a single terminal cell in pixels.
         cache: Per-session memoization dict owned by the caller.
     """
-    delete = b'\033_Ga=d,d=A\033\\'
+    delete = b"\033_Ga=d,d=A\033\\"
     data = encode_kitty(video, cols, rows, cell_w, cell_h, cache)
     if not data:
         sys.stdout.buffer.write(delete)
         sys.stdout.buffer.flush()
         return
-    cursor_pos = f'\033[{abs_row + 1};{abs_col + 1}H'.encode('ascii')
+    cursor_pos = f"\033[{abs_row + 1};{abs_col + 1}H".encode("ascii")
     # \033[s / \033[u — save and restore cursor position so ncurses internal
     # tracking stays in sync with the actual terminal cursor after our write.
-    sys.stdout.buffer.write(b'\033[s' + delete + cursor_pos + data + b'\033[u')
+    sys.stdout.buffer.write(b"\033[s" + delete + cursor_pos + data + b"\033[u")
     sys.stdout.buffer.flush()

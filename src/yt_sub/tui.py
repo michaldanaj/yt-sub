@@ -18,6 +18,7 @@ from .thumbnails import THUMB_CACHE_DIR
 
 CONFIG_PATH = str(paths.config_file())
 
+
 class YouTubeTUI:
     """Dual-pane terminal UI for browsing YouTube subscriptions.
 
@@ -75,7 +76,9 @@ class YouTubeTUI:
         self.sync_progress = ""
         self._sync_starter = sync_starter
         self._outbox_event = outbox_event
-        self._thumb_kitty_cache: Dict[tuple, Any] = {}  # (video_id, cols, rows) -> bytes or None
+        self._thumb_kitty_cache: Dict[
+            tuple, Any
+        ] = {}  # (video_id, cols, rows) -> bytes or None
 
     def _load_config(self) -> Dict[str, Any]:
         """Loads TUI configuration from :data:`CONFIG_PATH`.
@@ -91,8 +94,23 @@ class YouTubeTUI:
             except (json.JSONDecodeError, IOError):
                 pass
         return {
-            "colors": {"header": 103, "dot": 210, "duration": 150, "channel": 117, "title": 231, "selected_bg": 238, "detail_label": 103, "detail_value": 231},
-            "ui": {"pane_split_ratio": 0.5, "page_scroll_ratio": 0.8, "shorts_threshold_seconds": 90, "stats_months": 3, "show_thumbnails": True},
+            "colors": {
+                "header": 103,
+                "dot": 210,
+                "duration": 150,
+                "channel": 117,
+                "title": 231,
+                "selected_bg": 238,
+                "detail_label": 103,
+                "detail_value": 231,
+            },
+            "ui": {
+                "pane_split_ratio": 0.5,
+                "page_scroll_ratio": 0.8,
+                "shorts_threshold_seconds": 90,
+                "stats_months": 3,
+                "show_thumbnails": True,
+            },
             "youtube": {"later_playlist_name": "Later", "later_playlist_id": ""},
         }
 
@@ -100,10 +118,10 @@ class YouTubeTUI:
         """Initialises curses color pairs from the ``colors`` section of config."""
         curses.start_color()
         curses.use_default_colors()
-        
+
         c = self.config["colors"]
         bg = c["selected_bg"]
-        
+
         # Normal pairs
         curses.init_pair(1, c["header"], -1)
         curses.init_pair(2, c["dot"], -1)
@@ -112,14 +130,14 @@ class YouTubeTUI:
         curses.init_pair(5, c["title"], -1)
         curses.init_pair(7, c["detail_label"], -1)
         curses.init_pair(8, c["detail_value"], -1)
-        
+
         # Status bar separator color: define as (Default, Red)
         # so that A_REVERSE results in (Red, Default) to match the rest of the bar
         curses.init_pair(9, -1, 210)
 
         # Errors indicator: white text on red background (no A_REVERSE needed)
         curses.init_pair(10, 231, 196)
-        
+
         # Selected pairs
         curses.init_pair(12, c["dot"], bg)
         curses.init_pair(13, c["duration"], bg)
@@ -141,7 +159,7 @@ class YouTubeTUI:
         items = []
         current_date = None
         threshold = self.config["ui"].get("shorts_threshold_seconds", 90)
-        
+
         filtered_videos = []
         q = self.filter_query.lower()
         for video in self.videos:
@@ -151,7 +169,11 @@ class YouTubeTUI:
                 continue
             if self.filter_channel_id and video.channel_id != self.filter_channel_id:
                 continue
-            if q and q not in video.title.lower() and q not in video.channel_title.lower():
+            if (
+                q
+                and q not in video.title.lower()
+                and q not in video.channel_title.lower()
+            ):
                 continue
 
             filtered_videos.append(video)
@@ -159,7 +181,9 @@ class YouTubeTUI:
         for video in filtered_videos:
             try:
                 # Convert UTC timestamp to local time so date headers match the user's clock
-                utc_dt = datetime.strptime(video.published_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                utc_dt = datetime.strptime(
+                    video.published_at, "%Y-%m-%dT%H:%M:%SZ"
+                ).replace(tzinfo=timezone.utc)
                 pub_date = utc_dt.astimezone().strftime("%Y-%m-%d")
             except ValueError:
                 pub_date = video.published_at[:10] if video.published_at else "Unknown"
@@ -213,12 +237,14 @@ class YouTubeTUI:
         """
         if not prev_selected_id or self._find_current_display_index() != -1:
             return
-        visible_ids = {item["content"].id for item in self.display_items
-                       if item["type"] == "video"}
+        visible_ids = {
+            item["content"].id for item in self.display_items if item["type"] == "video"
+        }
         if not visible_ids:
             return
-        prev_idx = next((i for i, v in enumerate(self.videos)
-                         if v.id == prev_selected_id), -1)
+        prev_idx = next(
+            (i for i, v in enumerate(self.videos) if v.id == prev_selected_id), -1
+        )
         if prev_idx == -1:
             return
         for offset in range(1, len(self.videos)):
@@ -231,7 +257,14 @@ class YouTubeTUI:
                 self.selected_id = self.videos[down].id
                 return
 
-    def _safe_addstr(self, win: "curses.window", y: int, x: int, text: str, attr: int = curses.A_NORMAL) -> None:
+    def _safe_addstr(
+        self,
+        win: "curses.window",
+        y: int,
+        x: int,
+        text: str,
+        attr: int = curses.A_NORMAL,
+    ) -> None:
         """Writes a string to a curses window, clipping to window boundaries.
 
         Silently ignores writes that fall outside the window or that curses
@@ -249,7 +282,7 @@ class YouTubeTUI:
             if y < 0 or y >= h or x < 0 or x >= w:
                 return
             available = w - x
-            win.addstr(y, x, str(text)[:available-1], attr)
+            win.addstr(y, x, str(text)[: available - 1], attr)
         except curses.error:
             pass
 
@@ -264,17 +297,17 @@ class YouTubeTUI:
         """
         sh, sw = stdscr.getmaxyx()
         prompt = "Shorts threshold (seconds): "
-        
+
         self._safe_addstr(stdscr, sh - 1, 0, " " * (sw - 1), curses.A_REVERSE)
         self._safe_addstr(stdscr, sh - 1, 0, prompt, curses.A_REVERSE)
         stdscr.refresh()
-        
+
         curses.echo()
         curses.curs_set(1)
         query_win = curses.newwin(1, sw - len(prompt) - 1, sh - 1, len(prompt))
         query_win.attron(curses.A_REVERSE)
         try:
-            val = query_win.getstr().decode('utf-8')
+            val = query_win.getstr().decode("utf-8")
             if val.isdigit():
                 self.config["ui"]["shorts_threshold_seconds"] = int(val)
                 with open(CONFIG_PATH, "w") as f:
@@ -284,7 +317,9 @@ class YouTubeTUI:
         curses.noecho()
         curses.curs_set(0)
 
-    def _show_message(self, stdscr: "curses.window", message: str, seconds: float = 1) -> None:
+    def _show_message(
+        self, stdscr: "curses.window", message: str, seconds: float = 1
+    ) -> None:
         """Displays a centred message box for the given duration.
 
         Uses ``noutrefresh`` / ``doupdate`` so the box is composited onto
@@ -298,7 +333,7 @@ class YouTubeTUI:
         sh, sw = stdscr.getmaxyx()
         h, w = 3, len(message) + 4
         y, x = (sh - h) // 2, (sw - w) // 2
-        
+
         msg_win = curses.newwin(h, w, y, x)
         msg_win.box()
         self._safe_addstr(msg_win, 1, 2, message, curses.A_BOLD)
@@ -335,7 +370,10 @@ class YouTubeTUI:
 
         if current_display_idx < self.top_line:
             self.top_line = current_display_idx
-            if self.top_line > 0 and self.display_items[self.top_line - 1]["type"] == "header":
+            if (
+                self.top_line > 0
+                and self.display_items[self.top_line - 1]["type"] == "header"
+            ):
                 self.top_line -= 1
         elif current_display_idx >= self.top_line + height:
             self.top_line = max(0, current_display_idx - height + 1)
@@ -344,39 +382,41 @@ class YouTubeTUI:
             idx = self.top_line + i
             if idx >= len(self.display_items):
                 break
-            
+
             rel_num = abs(idx - current_display_idx)
             num_str = f"{rel_num:2} " if rel_num != 0 else f"{idx + 1:2} "
             self._safe_addstr(win, i, 0, num_str, curses.A_DIM)
-            
+
             item = self.display_items[idx]
             if item["type"] == "header":
                 text = f"--- {item['content']} ---".center(width - 3)
                 self._safe_addstr(win, i, 3, text, curses.color_pair(1))
             else:
                 video = item["content"]
-                is_sel = (video.id == self.selected_id)
+                is_sel = video.id == self.selected_id
                 p = lambda base: curses.color_pair(base + 10 if is_sel else base)
-                
+
                 x = 3
                 dot_str = "• " if is_sel else "  "
                 self._safe_addstr(win, i, x, dot_str, p(2))
                 x += len(dot_str)
-                
+
                 dur_str = f"[{video.duration}] "
                 self._safe_addstr(win, i, x, dur_str, p(3))
                 x += len(dur_str)
-                
+
                 chan_str = f"{video.channel_title} "
                 self._safe_addstr(win, i, x, chan_str, p(4))
                 x += len(chan_str)
-                
+
                 title_str = f"- {video.title}"
                 if is_sel:
                     self._safe_addstr(win, i, x, " " * (width - x), p(5))
                 self._safe_addstr(win, i, x, title_str, p(5))
-                
-    def _draw_right_pane(self, win: "curses.window", width: int, height: int, reserved_rows: int = 0) -> None:
+
+    def _draw_right_pane(
+        self, win: "curses.window", width: int, height: int, reserved_rows: int = 0
+    ) -> None:
         """Renders the video detail view in the right pane.
 
         Shows the title, channel, publication date, duration, view/like counts
@@ -397,12 +437,14 @@ class YouTubeTUI:
         if height < 1:
             return
         y = 0
-        
+
         def add_detail(label, value):
             nonlocal y
             if y < height:
                 self._safe_addstr(win, y, 0, f"{label}: ", curses.color_pair(7))
-                self._safe_addstr(win, y, len(label) + 2, str(value), curses.color_pair(8))
+                self._safe_addstr(
+                    win, y, len(label) + 2, str(value), curses.color_pair(8)
+                )
                 y += 1
 
         title_lines = textwrap.wrap(video.title, width)
@@ -411,31 +453,39 @@ class YouTubeTUI:
                 self._safe_addstr(win, y, 0, line, curses.A_BOLD | curses.color_pair(8))
                 y += 1
         y += 1
-        
+
         add_detail("Channel", video.channel_title)
+
         def fmt_local(utc_str: str) -> str:
             try:
-                utc_dt = datetime.strptime(utc_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                utc_dt = datetime.strptime(utc_str, "%Y-%m-%dT%H:%M:%SZ").replace(
+                    tzinfo=timezone.utc
+                )
                 return utc_dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
             except ValueError:
-                return utc_str.replace('T', ' ').replace('Z', '')
+                return utc_str.replace("T", " ").replace("Z", "")
 
         add_detail("Published", fmt_local(video.published_at))
         if video.last_synced:
             add_detail("Synced", fmt_local(video.last_synced))
         add_detail("Duration", video.duration.strip())
-        add_detail("Views", f"{video.view_count:,}" if video.view_count is not None else "N/A")
-        add_detail("Likes", f"{video.like_count:,}" if video.like_count is not None else "N/A")
-        
+        add_detail(
+            "Views", f"{video.view_count:,}" if video.view_count is not None else "N/A"
+        )
+        add_detail(
+            "Likes", f"{video.like_count:,}" if video.like_count is not None else "N/A"
+        )
+
         y += 1
         if y < height:
             self._safe_addstr(win, y, 0, "-" * (width - 1), curses.A_DIM)
             y += 1
-        
+
         if video.description:
             lines = video.description.splitlines()
             for line in lines:
-                if y >= height: break
+                if y >= height:
+                    break
                 if not line.strip():
                     y += 1
                     continue
@@ -486,7 +536,7 @@ class YouTubeTUI:
 
             list_h = modal_h - 4
             offset = max(0, selected_idx - list_h + 1)
-            for i, entry in enumerate(entries[offset:offset + list_h]):
+            for i, entry in enumerate(entries[offset : offset + list_h]):
                 row_idx = i + offset
                 action_label = "ADD   " if entry.action == "add" else "REMOVE"
                 title_part = entry.title[:28]
@@ -494,29 +544,31 @@ class YouTubeTUI:
                 err_part = (entry.last_error or "")[:30]
                 line = f" {action_label} {title_part:<28} — {chan_part:<18} ({entry.attempts}× {err_part})"
                 attr = curses.A_REVERSE if row_idx == selected_idx else 0
-                self._safe_addstr(win, i + 2, 1, line[:modal_w - 2], attr)
+                self._safe_addstr(win, i + 2, 1, line[: modal_w - 2], attr)
 
             hint = " r:retry  R:retry all  d:delete  ESC/E:close "
-            self._safe_addstr(win, modal_h - 2, (modal_w - len(hint)) // 2, hint, curses.A_DIM)
+            self._safe_addstr(
+                win, modal_h - 2, (modal_w - len(hint)) // 2, hint, curses.A_DIM
+            )
             win.refresh()
 
             key = win.getch()
-            if key in (27, ord('E')):  # ESC or E
+            if key in (27, ord("E")):  # ESC or E
                 break
-            elif key in (ord('k'), curses.KEY_UP):
+            elif key in (ord("k"), curses.KEY_UP):
                 selected_idx = max(0, selected_idx - 1)
-            elif key in (ord('j'), curses.KEY_DOWN):
+            elif key in (ord("j"), curses.KEY_DOWN):
                 selected_idx = min(len(entries) - 1, selected_idx + 1)
-            elif key == ord('r'):
+            elif key == ord("r"):
                 self.db.retry_op(entries[selected_idx].id)
                 if self._outbox_event:
                     self._outbox_event.set()
-            elif key == ord('R'):
+            elif key == ord("R"):
                 self.db.retry_all_failed()
                 if self._outbox_event:
                     self._outbox_event.set()
                 selected_idx = 0
-            elif key == ord('d'):
+            elif key == ord("d"):
                 self.db.delete_op(entries[selected_idx].id)
                 selected_idx = max(0, selected_idx - 1)
 
@@ -562,13 +614,15 @@ class YouTubeTUI:
             ("Ctrl+f / b", "Page down / up"),
             ("?", "Toggle this help screen"),
             ("ESC", "Return to main list / Clear all filters"),
-            ("q", "Quit")
+            ("q", "Quit"),
         ]
 
         for i, (key, desc) in enumerate(shortcuts):
             self._safe_addstr(win, i + 2, 2, f"{key:12} : {desc}")
 
-        self._safe_addstr(win, h - 2, (w - 22) // 2, "Press any key to close", curses.A_DIM)
+        self._safe_addstr(
+            win, h - 2, (w - 22) // 2, "Press any key to close", curses.A_DIM
+        )
         win.refresh()
         win.getch()
         self.show_help = False
@@ -645,9 +699,15 @@ class YouTubeTUI:
                         for v in new_batch:
                             if v.id in video_dict:
                                 v.watch_later = video_dict[v.id].watch_later
-                            video_dict[v.id] = v  # Update with new data (metadata, duration, etc)
+                            video_dict[v.id] = (
+                                v  # Update with new data (metadata, duration, etc)
+                            )
 
-                        self.videos = sorted(video_dict.values(), key=lambda x: x.published_at, reverse=True)
+                        self.videos = sorted(
+                            video_dict.values(),
+                            key=lambda x: x.published_at,
+                            reverse=True,
+                        )
 
                         # Restore selection by ID (no index arithmetic needed)
                         if sel_vid_id and any(v.id == sel_vid_id for v in self.videos):
@@ -656,7 +716,11 @@ class YouTubeTUI:
                             self.selected_id = self.videos[0].id
 
                         self.display_items = self._get_display_list()
-                        self._show_message(stdscr, f"Sync complete: {len(new_batch)} items updated/added", 2)
+                        self._show_message(
+                            stdscr,
+                            f"Sync complete: {len(new_batch)} items updated/added",
+                            2,
+                        )
                         redraw_level = "full"
         except queue.Empty:
             pass
@@ -676,7 +740,7 @@ class YouTubeTUI:
             sw: Terminal width in columns.
         """
         wl_count = sum(1 for v in self.videos if v.watch_later)
-        threshold = self.config['ui'].get('shorts_threshold_seconds', 90)
+        threshold = self.config["ui"].get("shorts_threshold_seconds", 90)
         wl_label = "IST" if self.show_watch_later else "ist"
         wl_part = f"[l]ater [L]{wl_label} ({wl_count})"
         shorts_label = "HORTS" if not self.show_shorts else "horts"
@@ -688,7 +752,10 @@ class YouTubeTUI:
         if self.filter_channel_id:
             chan_name = "Unknown"
             for item in self.display_items:
-                if item["type"] == "video" and item["content"].channel_id == self.filter_channel_id:
+                if (
+                    item["type"] == "video"
+                    and item["content"].channel_id == self.filter_channel_id
+                ):
                     chan_name = item["content"].channel_title
                     break
             chan_filter = f"Filter: {chan_name}"
@@ -717,16 +784,26 @@ class YouTubeTUI:
             if self.db.count_failed_ops() > 0:
                 seg(" [E]rrors ", curses.color_pair(10))
                 sep()
-            seg(f"[q]uit "); sep()
-            seg(f" [?] help "); sep()
-            seg(f" [/] find "); sep()
-            seg(f" [y]ank "); sep()
-            seg(f" [o]pen "); sep()
-            seg(f" {wl_part} "); sep()
-            seg(f" [d]el "); sep()
-            seg(f" {shorts_part} "); sep()
-            seg(f" {thumb_part} "); sep()
-            seg(f" [b]y channel "); sep()
+            seg(f"[q]uit ")
+            sep()
+            seg(f" [?] help ")
+            sep()
+            seg(f" [/] find ")
+            sep()
+            seg(f" [y]ank ")
+            sep()
+            seg(f" [o]pen ")
+            sep()
+            seg(f" {wl_part} ")
+            sep()
+            seg(f" [d]el ")
+            sep()
+            seg(f" {shorts_part} ")
+            sep()
+            seg(f" {thumb_part} ")
+            sep()
+            seg(f" [b]y channel ")
+            sep()
             seg(f" {chan_filter}{search_status}")
 
         if self.is_syncing:
@@ -740,6 +817,7 @@ class YouTubeTUI:
         # Version label appended after the last segment, in the same style
         # as other status text (A_REVERSE, no separator color).
         from . import __version__
+
         sep()
         seg(f" v{__version__} ")
 
@@ -762,7 +840,7 @@ class YouTubeTUI:
         Returns:
             ``True`` if the application should exit, ``False`` otherwise.
         """
-        if key == ord('q'):
+        if key == ord("q"):
             return True
         elif key == 27:  # ESC
             self.show_watch_later = False
@@ -770,20 +848,22 @@ class YouTubeTUI:
             self.filter_query = ""
             self.input_buffer = ""
             self.display_items = self._get_display_list()
-        elif key == ord('?'):
+        elif key == ord("?"):
             self.show_help = True
-        elif key == ord('/'):
+        elif key == ord("/"):
             self.is_searching = True
             self.input_buffer = ""
-        elif key == ord('y'):
+        elif key == ord("y"):
             v = self._get_selected_video()
-            if v: actions.copy_to_clipboard(v.url)
+            if v:
+                actions.copy_to_clipboard(v.url)
             self.input_buffer = ""
-        elif key == ord('o'):
+        elif key == ord("o"):
             v = self._get_selected_video()
-            if v: actions.open_in_browser(v)
+            if v:
+                actions.open_in_browser(v)
             self.input_buffer = ""
-        elif key == ord('l'):
+        elif key == ord("l"):
             v = self._get_selected_video()
             if v:
                 v.watch_later = True
@@ -793,17 +873,19 @@ class YouTubeTUI:
                 self._show_message(stdscr, f"Added to Watch Later: {v.title[:30]}...")
                 self.display_items = self._get_display_list()
             self.input_buffer = ""
-        elif key == ord('L'):
+        elif key == ord("L"):
             prev_id = self.selected_id
             self.show_watch_later = not self.show_watch_later
             self.display_items = self._get_display_list()
             if self.show_watch_later:
                 video_count = sum(1 for v in self.videos if v.watch_later)
                 if not any(item["type"] == "video" for item in self.display_items):
-                    self._show_message(stdscr, f"Watch Later list is empty (Total: {video_count})")
+                    self._show_message(
+                        stdscr, f"Watch Later list is empty (Total: {video_count})"
+                    )
             self._reselect_nearest_visible(prev_id)
             self.input_buffer = ""
-        elif key == ord('d'):
+        elif key == ord("d"):
             v = self._get_selected_video()
             if v and v.watch_later:
                 prev_id = self.selected_id
@@ -815,25 +897,26 @@ class YouTubeTUI:
                 self.display_items = self._get_display_list()
                 self._reselect_nearest_visible(prev_id)
             self.input_buffer = ""
-        elif key == ord('s'):
+        elif key == ord("s"):
             prev_id = self.selected_id
             self.show_shorts = not self.show_shorts
             self.display_items = self._get_display_list()
             self._reselect_nearest_visible(prev_id)
             self.input_buffer = ""
-        elif key == ord('S'):
+        elif key == ord("S"):
             prev_id = self.selected_id
             self._set_shorts_threshold(stdscr)
             self.display_items = self._get_display_list()
             self._reselect_nearest_visible(prev_id)
             self.input_buffer = ""
-        elif key == ord('E'):
+        elif key == ord("E"):
             thumbnails.clear_kitty()
             self._draw_errors_view(stdscr)
             self._thumb_kitty_cache.clear()
             self.input_buffer = ""
-        elif key == ord('a'):
+        elif key == ord("a"):
             from .channels_stats import ChannelsStatsView, QUIT_SENTINEL
+
             thumbnails.clear_kitty()
             result = ChannelsStatsView(self.db, self.config).run(stdscr)
             if result == QUIT_SENTINEL:
@@ -845,7 +928,7 @@ class YouTubeTUI:
                 self._reselect_nearest_visible(prev_id)
             self._thumb_kitty_cache.clear()
             self.input_buffer = ""
-        elif key == ord('t'):
+        elif key == ord("t"):
             self.show_thumbnails = not self.show_thumbnails
             self.config["ui"]["show_thumbnails"] = self.show_thumbnails
             with open(CONFIG_PATH, "w") as f:
@@ -853,22 +936,23 @@ class YouTubeTUI:
             if not self.show_thumbnails:
                 thumbnails.clear_kitty()
             self.input_buffer = ""
-        elif key in (ord('r'), 18):  # 18 = Ctrl+R
+        elif key in (ord("r"), 18):  # 18 = Ctrl+R
             if self._sync_starter and not self.is_syncing:
                 self.is_syncing = True
                 self._sync_starter()
             self.input_buffer = ""
-        elif key == ord('b'):
+        elif key == ord("b"):
             prev_id = self.selected_id
             if self.filter_channel_id:
                 self.filter_channel_id = None
             else:
                 v = self._get_selected_video()
-                if v: self.filter_channel_id = v.channel_id
+                if v:
+                    self.filter_channel_id = v.channel_id
             self.display_items = self._get_display_list()
             self._reselect_nearest_visible(prev_id)
             self.input_buffer = ""
-        elif key in [curses.KEY_UP, ord('k')]:
+        elif key in [curses.KEY_UP, ord("k")]:
             curr = self._find_current_display_index()
             if count == 1:
                 target = curr
@@ -881,9 +965,10 @@ class YouTubeTUI:
                 target = max(0, curr - count)
                 for idx in range(target, len(self.display_items)):
                     if self.display_items[idx]["type"] == "video":
-                        self.selected_id = self.display_items[idx]["content"].id; break
+                        self.selected_id = self.display_items[idx]["content"].id
+                        break
             self.input_buffer = ""
-        elif key in [curses.KEY_DOWN, ord('j')]:
+        elif key in [curses.KEY_DOWN, ord("j")]:
             curr = self._find_current_display_index()
             if count == 1:
                 target = curr
@@ -896,56 +981,65 @@ class YouTubeTUI:
                 target = min(len(self.display_items) - 1, curr + count)
                 for idx in range(target, len(self.display_items)):
                     if self.display_items[idx]["type"] == "video":
-                        self.selected_id = self.display_items[idx]["content"].id; break
+                        self.selected_id = self.display_items[idx]["content"].id
+                        break
             self.input_buffer = ""
-        elif key == ord('J'):
+        elif key == ord("J"):
             curr = self._find_current_display_index()
             days = count
             target = curr
             while days > 0 and target < len(self.display_items) - 1:
                 target += 1
-                if self.display_items[target]["type"] == "header": days -= 1
+                if self.display_items[target]["type"] == "header":
+                    days -= 1
             # target now points at the destination header; scroll it to the top
             self.top_line = target
             for idx in range(target, len(self.display_items)):
                 if self.display_items[idx]["type"] == "video":
-                    self.selected_id = self.display_items[idx]["content"].id; break
+                    self.selected_id = self.display_items[idx]["content"].id
+                    break
             self.input_buffer = ""
-        elif key == ord('K'):
+        elif key == ord("K"):
             curr = self._find_current_display_index()
             days = count
             target = curr
-            if target > 0 and self.display_items[target - 1]["type"] == "header": target -= 1
+            if target > 0 and self.display_items[target - 1]["type"] == "header":
+                target -= 1
             while days > 0 and target > 0:
                 target -= 1
-                if self.display_items[target]["type"] == "header": days -= 1
+                if self.display_items[target]["type"] == "header":
+                    days -= 1
             # target now points at the destination header; scroll it to the top
             self.top_line = target
             for idx in range(target, len(self.display_items)):
                 if self.display_items[idx]["type"] == "video":
-                    self.selected_id = self.display_items[idx]["content"].id; break
+                    self.selected_id = self.display_items[idx]["content"].id
+                    break
             self.input_buffer = ""
-        elif key == ord('G'):
+        elif key == ord("G"):
             if self.input_buffer:
                 line = min(count, len(self.display_items))
                 idx = max(0, line - 1)
                 for sub in range(idx, len(self.display_items)):
                     if self.display_items[sub]["type"] == "video":
-                        self.selected_id = self.display_items[sub]["content"].id; break
+                        self.selected_id = self.display_items[sub]["content"].id
+                        break
             else:
                 for idx in range(len(self.display_items) - 1, -1, -1):
                     if self.display_items[idx]["type"] == "video":
-                        self.selected_id = self.display_items[idx]["content"].id; break
+                        self.selected_id = self.display_items[idx]["content"].id
+                        break
             self.input_buffer = ""
-        elif key == ord('g'):
+        elif key == ord("g"):
             if self.input_buffer == "g":
                 for idx in range(len(self.display_items)):
                     if self.display_items[idx]["type"] == "video":
-                        self.selected_id = self.display_items[idx]["content"].id; break
+                        self.selected_id = self.display_items[idx]["content"].id
+                        break
                 self.input_buffer = ""
             else:
                 self.input_buffer = "g"
-        elif key == ord('z'):
+        elif key == ord("z"):
             if self.input_buffer == "z":
                 curr = self._find_current_display_index()
                 if curr != -1:
@@ -958,18 +1052,21 @@ class YouTubeTUI:
             target = max(0, curr - max(1, self._last_sh - 2))
             for idx in range(target, len(self.display_items)):
                 if self.display_items[idx]["type"] == "video":
-                    self.selected_id = self.display_items[idx]["content"].id; break
+                    self.selected_id = self.display_items[idx]["content"].id
+                    break
             self.input_buffer = ""
         elif key in [curses.KEY_NPAGE, 6]:
             curr = self._find_current_display_index()
             target = min(len(self.display_items) - 1, curr + max(1, self._last_sh - 2))
             for idx in range(target, len(self.display_items)):
                 if self.display_items[idx]["type"] == "video":
-                    self.selected_id = self.display_items[idx]["content"].id; break
+                    self.selected_id = self.display_items[idx]["content"].id
+                    break
             self.input_buffer = ""
-        elif key in [ord('\n'), curses.KEY_ENTER]:
+        elif key in [ord("\n"), curses.KEY_ENTER]:
             v = self._get_selected_video()
-            if v: actions.play_video(v)
+            if v:
+                actions.play_video(v)
             self.input_buffer = ""
         else:
             self.input_buffer = ""
@@ -1004,10 +1101,14 @@ class YouTubeTUI:
         # Non-movement keys (e.g. ``l``, ``s``, ``b``) MUST NOT be coalesced
         # because each press is a distinct toggle.
         NAV_KEYS = {
-            curses.KEY_UP, curses.KEY_DOWN,
-            ord('j'), ord('k'),
-            ord('J'), ord('K'),
-            curses.KEY_NPAGE, curses.KEY_PPAGE,
+            curses.KEY_UP,
+            curses.KEY_DOWN,
+            ord("j"),
+            ord("k"),
+            ord("J"),
+            ord("K"),
+            curses.KEY_NPAGE,
+            curses.KEY_PPAGE,
         }
 
         while True:
@@ -1017,7 +1118,8 @@ class YouTubeTUI:
                 stdscr.erase()
                 self._safe_addstr(stdscr, 0, 0, "Terminal too small")
                 stdscr.refresh()
-                if stdscr.getch() == ord('q'): break
+                if stdscr.getch() == ord("q"):
+                    break
                 continue
 
             # Background thumbnail downloads request a redraw via this event.
@@ -1045,7 +1147,7 @@ class YouTubeTUI:
                 thumb_cols = max(0, right_width - 1)
                 _cell_h, _cell_w = thumbnails.get_cell_px()
                 _target_w_px = thumb_cols * _cell_w
-                _target_h_px = round(_target_w_px * 9 / 16)   # maxresdefault is 16:9
+                _target_h_px = round(_target_w_px * 9 / 16)  # maxresdefault is 16:9
                 thumb_rows = max(0, math.ceil(_target_h_px / _cell_h))
                 if sh - 1 - thumb_rows < 8:
                     thumb_rows = 0
@@ -1061,8 +1163,10 @@ class YouTubeTUI:
 
                 stdscr.erase()
                 for y in range(sh - 1):
-                    try: stdscr.addch(y, left_width, curses.ACS_VLINE, curses.A_DIM)
-                    except: pass
+                    try:
+                        stdscr.addch(y, left_width, curses.ACS_VLINE, curses.A_DIM)
+                    except:
+                        pass
 
                 self._draw_status_bar(stdscr, sh, sw)
 
@@ -1082,8 +1186,16 @@ class YouTubeTUI:
                     _img_cols = math.ceil(_target_w_px / _cell_w)
                     _h_offset = max(0, (right_width - _img_cols) // 2)
                     thumb_abs_col = left_width + 1 + _h_offset
-                    thumbnails.draw_kitty(thumb_abs_row, thumb_abs_col, thumb_cols, thumb_rows,
-                                          thumb_video, _cell_w, _cell_h, self._thumb_kitty_cache)
+                    thumbnails.draw_kitty(
+                        thumb_abs_row,
+                        thumb_abs_col,
+                        thumb_cols,
+                        thumb_rows,
+                        thumb_video,
+                        _cell_w,
+                        _cell_h,
+                        self._thumb_kitty_cache,
+                    )
 
                 if self.show_help:
                     self._draw_help_overlay(stdscr)
@@ -1092,7 +1204,8 @@ class YouTubeTUI:
 
             stdscr.timeout(100)
             key = stdscr.getch()
-            if key == -1: continue
+            if key == -1:
+                continue
 
             if key == curses.KEY_RESIZE:
                 left_win = None
@@ -1132,28 +1245,34 @@ class YouTubeTUI:
                     self.filter_channel_id = None
                     self.show_watch_later = False
                     self.display_items = self._get_display_list()
-                elif key in [ord('\n'), curses.KEY_ENTER]:  # Enter — keep filter
+                elif key in [ord("\n"), curses.KEY_ENTER]:  # Enter — keep filter
                     self.is_searching = False
-                elif key in [curses.KEY_BACKSPACE, 127, 8]:   # Backspace
+                elif key in [curses.KEY_BACKSPACE, 127, 8]:  # Backspace
                     self.filter_query = self.filter_query[:-1]
                     self.display_items = self._get_display_list()
-                elif 32 <= key <= 126:                         # Typable characters
+                elif 32 <= key <= 126:  # Typable characters
                     self.filter_query += chr(key)
                     self.display_items = self._get_display_list()
                 continue
 
             # Numeric prefix accumulation
-            if ord('0') <= key <= ord('9'):
-                if self.input_buffer == "" and key == ord('0'): pass
+            if ord("0") <= key <= ord("9"):
+                if self.input_buffer == "" and key == ord("0"):
+                    pass
                 else:
                     self.input_buffer += chr(key)
                     continue
 
-            count = int(self.input_buffer) if self.input_buffer and self.input_buffer.isdigit() else 1
+            count = (
+                int(self.input_buffer)
+                if self.input_buffer and self.input_buffer.isdigit()
+                else 1
+            )
             count += extra_count
 
             if self._handle_key(key, count, stdscr):
                 break
+
 
 def start_tui(
     videos: List[Video],
@@ -1179,7 +1298,12 @@ def start_tui(
             :class:`~later_outbox.LaterOutboxWorker`; set after each
             ``l``/``d`` toggle.  ``None`` disables outbox signalling.
     """
-    if not videos: videos = []
-    os.environ.setdefault('TERM', 'xterm-256color')
-    os.environ.setdefault('ESCDELAY', '25')
-    curses.wrapper(lambda stdscr: YouTubeTUI(videos, db, sync_queue, sync_starter, outbox_event).run(stdscr))
+    if not videos:
+        videos = []
+    os.environ.setdefault("TERM", "xterm-256color")
+    os.environ.setdefault("ESCDELAY", "25")
+    curses.wrapper(
+        lambda stdscr: YouTubeTUI(
+            videos, db, sync_queue, sync_starter, outbox_event
+        ).run(stdscr)
+    )
